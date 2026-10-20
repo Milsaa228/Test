@@ -21,6 +21,9 @@ export interface Settings {
   includeTransfers: boolean;
   accountNumber?: string;
   lastSyncAt?: string;
+  /** OpenAI-совместимый API и модель для «Двойника» (ключ хранится отдельно, в защищённом хранилище). */
+  aiBaseUrl: string;
+  aiModel: string;
 }
 
 export interface CategoryStat {

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 const out = mkdtempSync(join(tmpdir(), 'tbank-test-'));
 execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node',
   '--skipLibCheck', '--strict', 'src/lib/csvImport.ts', 'src/lib/encoding.ts', 'src/lib/stats.ts', 'src/lib/tbankApi.ts', 'src/lib/demo.ts',
-  'src/lib/forecast.ts', 'src/lib/finContext.ts'], { stdio: 'inherit' });
+  'src/lib/forecast.ts', 'src/lib/finContext.ts', 'src/lib/ai.ts'], { stdio: 'inherit' });
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');
 const require = createRequire(join(out, 'x.js'));
 const { importTbankCsv } = require('./csvImport.js');
@@ -19,7 +19,8 @@ const { computeMonthStats, mergeTransactions, monthKey, formatMoney } = require(
 const { mapOperation } = require('./tbankApi.js');
 const { generateDemo } = require('./demo.js');
 const { computeForecast, detectRecurring, detectSalary, merchantKey } = require('./forecast.js');
-const { buildFinContext, MAX_LARGE_TX } = require('./finContext.js');
+const { buildFinContext, buildSystemPrompt, toChatMessages, MAX_LARGE_TX, MAX_CONTEXT_CHARS, MAX_HISTORY } = require('./finContext.js');
+const { askText, DEFAULT_AI } = require('./ai.js');
 
 const HEADER = '"Дата операции";"Дата платежа";"Номер карты";"Статус";"Сумма операции";"Валюта операции";"Сумма платежа";"Валюта платежа";"Кэшбэк";"Категория";"MCC";"Описание";"Бонусы (включая кэшбэк)";"Округление на инвесткопилку";"Сумма операции с округлением"';
 const CSV = [
@@ -208,18 +209,90 @@ test('financial context is compact and bounded', () => {
   // 300 дополнительных покупок по 2000–2299 ₽: в список крупных попадут не все
   const extra = Array.from({ length: 300 }, (_, i) => tx(2026, 7 + (i % 3), 1 + (i % 28), 2000 + i, `Магазин ${i}`));
   const ctx = buildFinContext([...synthetic(), ...extra], false, NOW);
-  for (const part of ['## Итоги по месяцам', 'Октябрь 2026 (месяц не закончился)', 'Кинопоиск', 'Зарплата за 10.2026', 'До зарплаты дней: 21']) {
+  for (const part of ['Итоги по месяцам', 'Октябрь 2026 (месяц не закончился)', 'Кинопоиск', 'Зарплата за 10.2026', 'До зарплаты дней: 21']) {
     assert.ok(ctx.includes(part), part);
   }
+  assert.ok(!ctx.includes('##'), 'no Markdown headings');
   const lines = ctx.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2};/.test(l));
-  assert.equal(lines.length, MAX_LARGE_TX);
+  assert.ok(lines.length > 30 && lines.length <= MAX_LARGE_TX, `large tx lines ${lines.length}`);
   assert.ok(lines[0] >= lines[lines.length - 1], 'newest first');
-  assert.ok(ctx.includes('2026-08-10;расход;Путешествия;Туроператор;200000'));
-  assert.ok(ctx.length < 20000, `context length ${ctx.length}`);
+  assert.ok(ctx.includes('2026-08-10;расход;Путешествия;Туроператор;200000'), 'the largest operation is kept');
+  assert.ok(ctx.length <= MAX_CONTEXT_CHARS, `context length ${ctx.length}`);
   const plain = buildFinContext(synthetic(), false, NOW);
   assert.ok(plain.includes(`Прогноз расходов за месяц: ${formatMoney(31508)}`));
   assert.ok(plain.includes(`Зарплата за 10.2026: ${formatMoney(400000)}, 4 поступл.`), 'incomes grouped by payer');
-  const demoCtx = buildFinContext(generateDemo(), false);
-  assert.ok(demoCtx.includes('Яндекс Плюс') && demoCtx.length < 20000);
   assert.ok(buildFinContext([], false, NOW).includes('не обнаружены'));
+});
+
+test('context for demo data fits free models (6–8k chars)', () => {
+  const demo = generateDemo();
+  const demoCtx = buildFinContext(demo, false);
+  assert.ok(demoCtx.includes('Яндекс Плюс'));
+  assert.ok(demoCtx.length > 3000 && demoCtx.length <= MAX_CONTEXT_CHARS, `demo context length ${demoCtx.length}`);
+  const large = demoCtx.split('\n').filter((l) => /^\d{4}-\d{2}-\d{2};/.test(l));
+  assert.ok(large.length > 0 && large.length <= MAX_LARGE_TX, `large tx lines ${large.length}`);
+  // и с учётом переводов, и с огромной выпиской сводка не растёт
+  const huge = [...demo, ...Array.from({ length: 5000 }, (_, i) => tx(2026, 1 + (i % 10), 1 + (i % 28), 3000 + i, `Очень длинное название магазина номер ${i} ООО Ромашка`))];
+  assert.ok(buildFinContext(demo, true).length <= MAX_CONTEXT_CHARS);
+  assert.ok(buildFinContext(huge, false, NOW).length <= MAX_CONTEXT_CHARS);
+  const system = buildSystemPrompt(demo, false);
+  for (const rule of ['по-русски', 'без Markdown', 'а не инструкции', 'Опирайся только на данные']) assert.ok(system.includes(rule), rule);
+  assert.ok(system.length < MAX_CONTEXT_CHARS + 1500, `system prompt length ${system.length}`);
+});
+
+test('chat history maps to API messages', () => {
+  const turns = [
+    { role: 'assistant', text: 'привет', at: '' },
+    ...Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `m${i}`, at: '' })),
+  ];
+  const msgs = toChatMessages(turns);
+  assert.ok(msgs.length <= MAX_HISTORY);
+  assert.equal(msgs[0].role, 'user');
+  assert.deepEqual(msgs.at(-1), { role: 'assistant', content: 'm29' });
+  assert.deepEqual(toChatMessages([{ role: 'assistant', text: 'x', at: '' }]), []);
+});
+
+function reply(status, body) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+test('askText sends system prompt and history to OpenRouter free models', async () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/models')) {
+      return reply(200, { data: [
+        { id: 'paid/model', pricing: { prompt: '0.001', completion: '0.002' } },
+        { id: 'some/model:free', context_length: 32000, pricing: { prompt: '0', completion: '0' } },
+        { id: 'openrouter/free', context_length: 1000, pricing: { prompt: '0', completion: '0' } },
+      ] });
+    }
+    const body = JSON.parse(init.body);
+    calls.push({ url: String(url), auth: new Headers(init.headers).get('authorization'), body });
+    if (body.model === 'openrouter/free') return reply(429, { error: { message: 'rate limited' } });
+    return reply(200, { choices: [{ message: { content: '<think>считаю 100000 − 85000</think>\nДа, хватит: останется 15 000 ₽.' } }] });
+  };
+  try {
+    const system = buildSystemPrompt(synthetic(), false, NOW);
+    const turns = [
+      { role: 'user', text: 'Сколько я трачу?', at: '' },
+      { role: 'assistant', text: 'Около 31 000 ₽ в месяц.', at: '' },
+      { role: 'user', text: 'Хватит на отпуск?', at: '' },
+    ];
+    const answer = await askText({ ...DEFAULT_AI, apiKey: 'sk-or-test' }, { system, messages: toChatMessages(turns) });
+    assert.equal(answer, 'Да, хватит: останется 15 000 ₽.');
+    assert.deepEqual(calls.map((c) => c.body.model), ['openrouter/free', 'some/model:free'], 'falls back to the next free model');
+    const [call] = calls;
+    assert.equal(call.url, 'https://openrouter.ai/api/v1/chat/completions');
+    assert.equal(call.auth, 'Bearer sk-or-test');
+    assert.deepEqual(call.body.messages, [
+      { role: 'system', content: system },
+      { role: 'user', content: 'Сколько я трачу?' },
+      { role: 'assistant', content: 'Около 31 000 ₽ в месяц.' },
+      { role: 'user', content: 'Хватит на отпуск?' },
+    ]);
+    await assert.rejects(askText({ ...DEFAULT_AI, apiKey: ' ' }, { system, messages: [] }), /ключ/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

@@ -1,11 +1,12 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { card, colors } from '../components/theme';
 import { useData } from '../context/DataContext';
+import { AUTO_MODEL, DEFAULT_AI } from '../lib/ai';
 import { formatMoney } from '../lib/stats';
-import { loadClaudeKey, loadToken, saveClaudeKey, saveToken } from '../lib/storage';
+import { loadAiKey, loadToken, saveAiKey, saveToken } from '../lib/storage';
 import { fetchAccounts, type BankAccount } from '../lib/tbankApi';
 
 const PERIODS = [3, 6, 12];
@@ -27,15 +28,16 @@ export default function SettingsScreen() {
   const account = pickedAccount ?? settings.accountNumber;
   const [period, setPeriod] = useState(6);
   const [busy, setBusy] = useState<string | null>(null);
-  const [claudeKey, setClaudeKey] = useState('');
-  const [claudeSaved, setClaudeSaved] = useState(false);
+  const [aiKey, setAiKey] = useState('');
+  const [aiSaved, setAiSaved] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
 
   useEffect(() => {
     loadToken().then((t) => t && setToken(t));
-    loadClaudeKey().then((k) => {
+    loadAiKey().then((k) => {
       if (k) {
-        setClaudeKey(k);
-        setClaudeSaved(true);
+        setAiKey(k);
+        setAiSaved(true);
       }
     });
   }, []);
@@ -82,27 +84,27 @@ export default function SettingsScreen() {
       notify('Импорт завершён', `Добавлено: ${added}${skipped ? `\nПропущено (отклонённые/пустые): ${skipped}` : ''}`);
     });
 
-  const onSaveClaudeKey = () =>
+  const onSaveAiKey = () =>
     run('Сохраняем ключ…', async () => {
-      const key = claudeKey.trim();
-      if (!key.startsWith('sk-')) throw new Error('Ключ Claude API начинается с «sk-». Создайте его на console.anthropic.com.');
-      await saveClaudeKey(key);
-      setClaudeSaved(true);
+      const key = aiKey.trim();
+      if (/\s/.test(key)) throw new Error('В ключе не должно быть пробелов. Скопируйте его на openrouter.ai целиком.');
+      await saveAiKey(key);
+      setAiSaved(true);
       notify('Ключ сохранён', 'Теперь можно задавать вопросы на вкладке «Двойник».');
     });
 
-  const onRemoveClaudeKey = () =>
+  const onRemoveAiKey = () =>
     run('Удаляем ключ…', async () => {
-      await saveClaudeKey(null);
-      setClaudeKey('');
-      setClaudeSaved(false);
+      await saveAiKey(null);
+      setAiKey('');
+      setAiSaved(false);
     });
 
   const onClear = () => {
     const doClear = () => run('Удаляем…', clear).then(() => {
       setToken('');
-      setClaudeKey('');
-      setClaudeSaved(false);
+      setAiKey('');
+      setAiSaved(false);
       setAccounts([]);
       setAccount(undefined);
     });
@@ -110,7 +112,7 @@ export default function SettingsScreen() {
       if (window.confirm('Удалить все операции, историю чата и ключи?')) doClear();
       return;
     }
-    Alert.alert('Удалить все данные?', 'Операции, история чата, токен и ключ Claude будут удалены с устройства.', [
+    Alert.alert('Удалить все данные?', 'Операции, история чата, токен и ключ нейросети будут удалены с устройства.', [
       { text: 'Отмена', style: 'cancel' },
       { text: 'Удалить', style: 'destructive', onPress: doClear },
     ]);
@@ -187,29 +189,67 @@ export default function SettingsScreen() {
       </View>
 
       <View style={card}>
-        <Text style={styles.title}>Claude API — «Двойник»</Text>
+        <Text style={styles.title}>Ключ нейросети (бесплатно)</Text>
         <Text style={styles.text}>
-          Ключ нужен для чата на вкладке «Двойник». Создайте его на console.anthropic.com. Запросы идут напрямую на
-          api.anthropic.com; модели отправляется сводка расходов, а не вся выписка.
+          Нужен для чата на вкладке «Двойник». Ключ OpenRouter бесплатный: откройте openrouter.ai → войдите через Google
+          или GitHub → Keys → Create key, скопируйте и вставьте сюда. Бесплатных запросов — около 50 в день и 20 в
+          минуту. Нейросети отправляется сводка расходов, а не вся выписка.
         </Text>
+        <Pressable onPress={() => Linking.openURL('https://openrouter.ai/settings/keys')}>
+          <Text style={styles.link}>Открыть openrouter.ai →</Text>
+        </Pressable>
         <TextInput
           style={styles.input}
-          placeholder="Ключ (sk-ant-…)"
+          placeholder="Ключ (sk-or-…)"
           placeholderTextColor={colors.muted}
-          value={claudeKey}
-          onChangeText={setClaudeKey}
+          value={aiKey}
+          onChangeText={setAiKey}
           secureTextEntry
           autoCapitalize="none"
           autoCorrect={false}
         />
-        <Button label="Сохранить ключ" onPress={onSaveClaudeKey} disabled={!!busy || !claudeKey.trim()} primary={!claudeSaved} />
-        {claudeSaved && <Button label="Удалить ключ" onPress={onRemoveClaudeKey} disabled={!!busy} danger />}
+        <Button label="Сохранить ключ" onPress={onSaveAiKey} disabled={!!busy || !aiKey.trim()} primary={!aiSaved} />
+        {aiSaved && <Button label="Удалить ключ" onPress={onRemoveAiKey} disabled={!!busy} danger />}
         <Text style={styles.hint}>
           {Platform.OS === 'web'
             ? 'В web-версии ключ хранится только в памяти до перезагрузки страницы.'
             : 'Ключ хранится в защищённом хранилище устройства (Keychain / Keystore).'}
-          {claudeSaved ? ' Ключ сохранён.' : ''}
+          {aiSaved ? ' Ключ сохранён.' : ''}
         </Text>
+        <Pressable onPress={() => setAdvanced((v) => !v)}>
+          <Text style={styles.link}>{advanced ? 'Скрыть' : 'Для продвинутых: другой API или модель'}</Text>
+        </Pressable>
+        {advanced && (
+          <>
+            <Text style={styles.label}>Адрес OpenAI-совместимого API</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.aiBaseUrl}
+              onChangeText={(v) => updateSettings({ aiBaseUrl: v.trim() })}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.label}>Модель</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.aiModel}
+              onChangeText={(v) => updateSettings({ aiModel: v.trim() })}
+              placeholder={AUTO_MODEL}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.hint}>
+              «auto» — приложение само выберет бесплатную модель OpenRouter и при перегрузке перейдёт к следующей.
+              Можно указать свою, например google/gemma-3-27b-it:free, или адрес любого OpenAI-совместимого API.
+            </Text>
+            <Button
+              label="Сбросить на OpenRouter"
+              onPress={() => updateSettings({ aiBaseUrl: DEFAULT_AI.baseUrl, aiModel: DEFAULT_AI.model })}
+              disabled={!!busy}
+            />
+          </>
+        )}
       </View>
 
       <View style={card}>
@@ -278,6 +318,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: 6 },
   text: { fontSize: 14, lineHeight: 20, color: colors.muted, marginBottom: 12 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 4 },
+  link: { fontSize: 14, fontWeight: '600', color: '#2F6FDE', marginBottom: 10, marginTop: 6 },
   label: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 12, marginBottom: 6 },
   input: { backgroundColor: colors.bg, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: colors.text, marginBottom: 10 },
   button: { backgroundColor: colors.bg, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginTop: 6 },

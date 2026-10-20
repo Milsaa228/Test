@@ -2,17 +2,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { DEFAULT_AI } from './ai';
 import type { ChatTurn, Settings, Transaction } from './types';
 
 const TX_KEY = 'transactions.v1';
 const SETTINGS_KEY = 'settings.v1';
 const TOKEN_KEY = 'tbank_api_token';
-const CLAUDE_KEY = 'claude_api_key';
+const AI_KEY = 'ai_api_key';
 const CHAT_KEY = 'assistant_chat.v1';
 /** Сколько последних реплик чата храним (и отправляем модели). */
 export const CHAT_LIMIT = 40;
 
-export const DEFAULT_SETTINGS: Settings = { includeTransfers: false };
+export const DEFAULT_SETTINGS: Settings = { includeTransfers: false, aiBaseUrl: DEFAULT_AI.baseUrl, aiModel: DEFAULT_AI.model };
 
 export async function loadTransactions(): Promise<Transaction[]> {
   const raw = await AsyncStorage.getItem(TX_KEY);
@@ -44,21 +45,21 @@ export async function saveToken(token: string | null): Promise<void> {
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
-// Ключ Claude: на iOS/Android — в Keychain / Keystore, на web — только в памяти до перезагрузки страницы.
-let webClaudeKey: string | null = null;
+// Ключ нейросети: на iOS/Android — в Keychain / Keystore, на web — только в памяти до перезагрузки страницы.
+let webAiKey: string | null = null;
 
-export async function loadClaudeKey(): Promise<string | null> {
-  if (Platform.OS === 'web') return webClaudeKey;
-  return SecureStore.getItemAsync(CLAUDE_KEY);
+export async function loadAiKey(): Promise<string | null> {
+  if (Platform.OS === 'web') return webAiKey;
+  return SecureStore.getItemAsync(AI_KEY);
 }
 
-export async function saveClaudeKey(key: string | null): Promise<void> {
+export async function saveAiKey(key: string | null): Promise<void> {
   if (Platform.OS === 'web') {
-    webClaudeKey = key;
+    webAiKey = key;
     return;
   }
-  if (key) await SecureStore.setItemAsync(CLAUDE_KEY, key);
-  else await SecureStore.deleteItemAsync(CLAUDE_KEY);
+  if (key) await SecureStore.setItemAsync(AI_KEY, key);
+  else await SecureStore.deleteItemAsync(AI_KEY);
 }
 
 export async function loadChat(): Promise<ChatTurn[]> {
@@ -74,5 +75,5 @@ export async function saveChat(turns: ChatTurn[]): Promise<void> {
 export async function clearAll(): Promise<void> {
   await AsyncStorage.multiRemove([TX_KEY, SETTINGS_KEY, CHAT_KEY]);
   await saveToken(null);
-  await saveClaudeKey(null);
+  await saveAiKey(null);
 }

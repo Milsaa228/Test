@@ -33,6 +33,9 @@ export interface Settings {
   /** Телефон для СБП или номер карты — подставляется в сообщение друзьям. */
   paymentDetails: string;
   bank: string;
+  /** OpenAI-совместимый API и модель для распознавания (ключ хранится отдельно, в защищённом хранилище). */
+  aiBaseUrl: string;
+  aiModel: string;
 }
 
 export interface Share {

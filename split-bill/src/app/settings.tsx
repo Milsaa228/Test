@@ -1,26 +1,32 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { card, colors } from '../components/theme';
 import { Button, confirm, notify } from '../components/ui';
 import { useBills } from '../context/BillsContext';
+import { AUTO_MODEL, DEFAULT_AI } from '../lib/ai';
 
 export default function SettingsScreen() {
   const { settings, updateSettings, apiKey, setApiKey, bills, clear } = useBills();
   const [key, setKey] = useState(apiKey);
+  const [advanced, setAdvanced] = useState(false);
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={card}>
-        <Text style={styles.title}>Ключ Claude API</Text>
+        <Text style={styles.title}>Ключ нейросети (бесплатно)</Text>
         <Text style={styles.text}>
-          Нужен для распознавания чеков. Получите ключ на console.anthropic.com → API Keys. Он хранится в защищённом
-          хранилище телефона, а фото чека уходит напрямую в api.anthropic.com.
+          Нужен для распознавания чеков. Ключ OpenRouter бесплатный: откройте openrouter.ai → войдите через Google или
+          GitHub → Keys → Create key, скопируйте и вставьте сюда. Бесплатных запросов — около 50 в день. Ключ хранится в
+          защищённом хранилище телефона.
         </Text>
+        <Pressable onPress={() => Linking.openURL('https://openrouter.ai/settings/keys')}>
+          <Text style={styles.link}>Открыть openrouter.ai →</Text>
+        </Pressable>
         <TextInput
           style={styles.input}
-          placeholder="sk-ant-…"
+          placeholder="sk-or-…"
           placeholderTextColor={colors.muted}
           value={key}
           onChangeText={setKey}
@@ -34,6 +40,36 @@ export default function SettingsScreen() {
           disabled={key.trim() === apiKey}
           onPress={() => setApiKey(key).then(() => notify('Ключ сохранён'))}
         />
+        <Pressable onPress={() => setAdvanced((v) => !v)}>
+          <Text style={styles.link}>{advanced ? 'Скрыть' : 'Для продвинутых: другой API или модель'}</Text>
+        </Pressable>
+        {advanced && (
+          <>
+            <Text style={styles.label}>Адрес OpenAI-совместимого API</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.aiBaseUrl}
+              onChangeText={(v) => updateSettings({ aiBaseUrl: v.trim() })}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.label}>Модель</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.aiModel}
+              onChangeText={(v) => updateSettings({ aiModel: v.trim() })}
+              placeholder={AUTO_MODEL}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.hint}>
+              «auto» — приложение само выберет бесплатную модель OpenRouter, которая понимает фото. Можно указать свою,
+              например google/gemma-3-27b-it:free.
+            </Text>
+            <Button label="Сбросить на OpenRouter" onPress={() => updateSettings({ aiBaseUrl: DEFAULT_AI.baseUrl, aiModel: DEFAULT_AI.model })} />
+          </>
+        )}
       </View>
 
       <View style={card}>
@@ -79,6 +115,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: 6 },
   text: { fontSize: 14, lineHeight: 20, color: colors.muted, marginBottom: 12 },
   hint: { fontSize: 12, color: colors.muted, marginTop: 4 },
+  link: { fontSize: 14, fontWeight: '600', color: '#2F6FDE', marginBottom: 10, marginTop: 6 },
   label: { fontSize: 13, fontWeight: '600', color: colors.muted, marginTop: 4, marginBottom: 6 },
   input: { backgroundColor: colors.bg, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: colors.text, marginBottom: 10 },
 });

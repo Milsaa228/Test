@@ -1,0 +1,141 @@
+# Собирает release-APK приложений и выкладывает их в GitHub Release «apk».
+# Скачать на телефон: https://github.com/Milsaa228/Test/releases/tag/apk
+#
+# Собираются только приложения, чьи папки изменились в пуше (или все — при изменении этого файла
+# и при ручном запуске на вкладке Actions). APK подписан встроенным debug-ключом шаблона Expo: он одинаковый
+# при каждой сборке, поэтому новая версия ставится поверх старой без потери данных.
+name: Android APK
+
+on:
+  push:
+    branches: [main, ccr-b3e5a361-x7phbb]
+    paths:
+      - 'split-bill/**'
+      - 'fridge-chef/**'
+      - 'geo-notes/**'
+      - 'tbank-expenses/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Какое приложение собрать'
+        type: choice
+        default: all
+        options: [all, split-bill, fridge-chef, geo-notes, tbank-expenses]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: apk
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Какие приложения собирать
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_APP: ${{ inputs.app }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          ALL="split-bill fridge-chef geo-notes tbank-expenses"
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$INPUT_APP" = "all" ]; then APPS="$ALL"; else APPS="$INPUT_APP"; fi
+          elif [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            APPS="$ALL"  # новая ветка или переписанная история — собираем всё
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+            if echo "$CHANGED" | grep -q '^\.github/workflows/android-apk\.yml$'; then
+              APPS="$ALL"
+            else
+              APPS=""
+              for app in $ALL; do
+                if echo "$CHANGED" | grep -q "^$app/"; then APPS="$APPS $app"; fi
+              done
+            fi
+          fi
+          echo "Собираем: ${APPS:-ничего}"
+          echo "apps=$(printf '%s\n' $APPS | jq -R . | jq -sc 'map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+      - name: Создать релиз, если его ещё нет
+        if: steps.pick.outputs.apps != '[]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" --title "Приложения для Android" \
+            --notes "Скачайте нужный .apk на телефон и откройте его. Android попросит разрешить установку из этого источника — разрешите."
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.plan.outputs.apps) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: Тесты
+        run: npm test
+
+      - name: Сгенерировать Android-проект
+        run: |
+          npx expo prebuild --platform android --no-install
+          # Только 64-битный ARM: это почти все телефоны последних лет, а сборка вдвое быстрее.
+          sed -i 's/^reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/' android/gradle.properties
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g/' android/gradle.properties
+        env:
+          CI: 1
+
+      - name: Собрать APK
+        working-directory: ${{ matrix.app }}/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Выложить в релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP: ${{ matrix.app }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/$APP.apk"
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$APP.apk" --clobber
+
+      - name: Сохранить APK как артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-apk
+          path: ${{ runner.temp }}/${{ matrix.app }}.apk
+          retention-days: 14

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import type { AiConfig } from '../lib/ai';
 import { newId } from '../lib/split';
 import * as storage from '../lib/storage';
 import type { Bill, Settings } from '../lib/types';
@@ -9,6 +10,8 @@ interface BillsContextValue {
   bills: Bill[];
   settings: Settings;
   apiKey: string;
+  /** Готовые настройки для запросов к модели. */
+  ai: AiConfig;
   createBill: (patch?: Partial<Bill>) => Promise<Bill>;
   updateBill: (id: string, patch: Partial<Bill> | ((bill: Bill) => Partial<Bill>)) => Promise<void>;
   deleteBill: (id: string) => Promise<void>;
@@ -97,9 +100,11 @@ export function BillsProvider({ children }: { children: ReactNode }) {
     setKey('');
   }, []);
 
+  const ai = useMemo(() => ({ apiKey, baseUrl: settings.aiBaseUrl, model: settings.aiModel }), [apiKey, settings.aiBaseUrl, settings.aiModel]);
+
   const value = useMemo(
-    () => ({ ready, bills, settings, apiKey, createBill, updateBill, deleteBill, updateSettings, setApiKey, clear }),
-    [ready, bills, settings, apiKey, createBill, updateBill, deleteBill, updateSettings, setApiKey, clear],
+    () => ({ ready, bills, settings, apiKey, ai, createBill, updateBill, deleteBill, updateSettings, setApiKey, clear }),
+    [ready, bills, settings, apiKey, ai, createBill, updateBill, deleteBill, updateSettings, setApiKey, clear],
   );
 
   return <BillsContext.Provider value={value}>{children}</BillsContext.Provider>;

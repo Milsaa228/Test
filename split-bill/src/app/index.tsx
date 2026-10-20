@@ -10,20 +10,20 @@ import { recognizeReceipt } from '../lib/receipt';
 import { computeShares, formatRub } from '../lib/split';
 
 export default function BillsScreen() {
-  const { ready, bills, apiKey, createBill } = useBills();
+  const { ready, bills, apiKey, ai, createBill } = useBills();
   const [busy, setBusy] = useState<string | null>(null);
 
   const fromPhoto = async (source: 'camera' | 'library') => {
     if (!apiKey) {
-      notify('Нужен ключ Claude', 'Добавьте API-ключ в настройках, чтобы распознавать чеки.');
+      notify('Нужен ключ', 'Добавьте бесплатный ключ OpenRouter в настройках, чтобы распознавать чеки.');
       router.navigate('/settings');
       return;
     }
     try {
       const photo = await pickPhoto(source);
       if (!photo) return;
-      setBusy('Claude читает чек…');
-      const receipt = await recognizeReceipt(apiKey, photo);
+      setBusy('Нейросеть читает чек…');
+      const receipt = await recognizeReceipt(ai, photo);
       if (!receipt.items.length) {
         notify('Чек не распознан', 'Попробуйте сфотографировать ровнее и при хорошем свете — или добавьте позиции вручную.');
         return;
@@ -64,7 +64,7 @@ export default function BillsScreen() {
       <View style={card}>
         <Text style={styles.title}>Новый счёт</Text>
         <Text style={styles.text}>
-          Сфотографируйте чек — Claude разберёт позиции. Потом отметьте, кто что ел, и отправьте друзьям, сколько они должны.
+          Сфотографируйте чек — нейросеть разберёт позиции. Потом отметьте, кто что ел, и отправьте друзьям, сколько они должны.
         </Text>
         {busy ? (
           <View style={styles.busy}>

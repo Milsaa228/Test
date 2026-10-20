@@ -2,13 +2,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { DEFAULT_AI } from './ai';
 import type { Bill, Settings } from './types';
 
 const BILLS_KEY = 'bills.v1';
 const SETTINGS_KEY = 'settings.v1';
-const API_KEY = 'anthropic_api_key';
+const API_KEY = 'ai_api_key';
 
-export const DEFAULT_SETTINGS: Settings = { myName: 'Я', paymentDetails: '', bank: 'Т-Банк' };
+export const DEFAULT_SETTINGS: Settings = { myName: 'Я', paymentDetails: '', bank: 'Т-Банк', aiBaseUrl: DEFAULT_AI.baseUrl, aiModel: DEFAULT_AI.model };
 
 export async function loadBills(): Promise<Bill[]> {
   const raw = await AsyncStorage.getItem(BILLS_KEY);
@@ -28,7 +29,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
-// Ключ Claude храним в Keychain / Keystore. На web SecureStore нет — ключ живёт только до перезагрузки страницы.
+// API-ключ храним в Keychain / Keystore. На web SecureStore нет — ключ живёт только до перезагрузки страницы.
 let webKey: string | null = null;
 
 export async function loadApiKey(): Promise<string | null> {

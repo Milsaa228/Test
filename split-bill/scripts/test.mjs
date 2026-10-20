@@ -1,20 +1,20 @@
 // Тесты чистой логики (без React Native): компилируем src/lib в CommonJS и проверяем через node:test.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const out = mkdtempSync(join(tmpdir(), 'split-test-'));
 execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node',
-  '--skipLibCheck', '--strict', '--esModuleInterop', 'src/lib/split.ts', 'src/lib/receipt.ts', 'src/lib/claude.ts'], { stdio: 'inherit' });
+  '--skipLibCheck', '--strict', 'src/lib/split.ts', 'src/lib/receipt.ts', 'src/lib/ai.ts'], { stdio: 'inherit' });
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');
-symlinkSync(resolve('node_modules'), join(out, 'node_modules'));
 const require = createRequire(join(out, 'x.js'));
 const { allocate, computeShares, formatRub, shareMessage } = require('./split.js');
 const { normalizeReceipt, recognizeReceipt } = require('./receipt.js');
+const { extractJson, pickFreeModels, askText, DEFAULT_AI } = require('./ai.js');
 
 const people = [{ id: 'a', name: 'Аня' }, { id: 'b', name: 'Боря' }, { id: 'c', name: 'Вика' }];
 const bill = (items, tipPercent = 0) => ({ id: '1', title: 'Кафе', createdAt: '', people, items, tipPercent, payerId: 'a' });
@@ -78,27 +78,65 @@ test('normalizes model output', () => {
   assert.equal(normalizeReceipt({ merchant: null, total: null, serviceFeePercent: 99, items: [] }).tipPercent, 0);
 });
 
-test('sends a structured-output request to Claude and parses the answer', async () => {
+test('normalizes numbers sent as strings', () => {
+  const r = normalizeReceipt({ merchant: 5, total: '1 250,50 ₽', serviceFeePercent: '10', items: [{ name: 'Суп', quantity: '2', price: '450,5' }] });
+  assert.equal(r.merchant, undefined);
+  assert.equal(r.total, 1250.5);
+  assert.equal(r.tipPercent, 10);
+  assert.deepEqual(r.items.map((i) => [i.name, i.price, i.quantity]), [['Суп', 450.5, 2]]);
+  assert.deepEqual(normalizeReceipt({ items: 'нет' }).items, []);
+});
+
+test('extracts JSON from chatty model output', () => {
+  assert.deepEqual(extractJson('{"a":1}'), { a: 1 });
+  assert.deepEqual(extractJson('Вот ответ:\n```json\n{"a": [1, 2]}\n```\nГотово'), { a: [1, 2] });
+  assert.deepEqual(extractJson('<think>хм {"x":0}</think>Результат: {"b": "с } скобкой", "c": {"d": 2}} конец'), { b: 'с } скобкой', c: { d: 2 } });
+  assert.throws(() => extractJson('не знаю'), /JSON/);
+});
+
+const CATALOG = [
+  { id: 'paid/model', pricing: { prompt: '0.000001', completion: '0.000002' }, architecture: { input_modalities: ['text', 'image'] } },
+  { id: 'small/text:free', context_length: 8000, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text'] } },
+  { id: 'big/vision:free', context_length: 128000, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'] } },
+  { id: 'mid/vision:free', context_length: 32000, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['image', 'text'] } },
+  { id: 'openrouter/free', context_length: 1000, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'] } },
+];
+
+test('picks free models, vision-capable when needed', () => {
+  assert.deepEqual(pickFreeModels(CATALOG, true), ['openrouter/free', 'big/vision:free', 'mid/vision:free']);
+  assert.deepEqual(pickFreeModels(CATALOG, false), ['openrouter/free', 'big/vision:free', 'mid/vision:free', 'small/text:free']);
+});
+
+function reply(status, body) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+test('recognizes a receipt via OpenRouter, falling back when a free model is busy', async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {
-    calls.push({ url: String(url), headers: new Headers(init.headers), body: JSON.parse(init.body) });
-    const answer = { merchant: 'Кафе', total: 500, serviceFeePercent: 0, items: [{ name: 'Кофе', quantity: 1, price: 500 }] };
-    return new Response(JSON.stringify({
-      id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', stop_sequence: null,
-      content: [{ type: 'text', text: JSON.stringify(answer) }], usage: { input_tokens: 1, output_tokens: 1 },
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (String(url).endsWith('/models')) return reply(200, { data: CATALOG });
+    const body = JSON.parse(init.body);
+    calls.push({ url: String(url), auth: new Headers(init.headers).get('authorization'), body });
+    if (body.model === 'openrouter/free') return reply(429, { error: { message: 'rate limited' } });
+    const answer = '```json\n{"merchant":"Кафе","total":500,"serviceFeePercent":0,"items":[{"name":"Кофе","quantity":1,"price":"500"}]}\n```';
+    return reply(200, { choices: [{ message: { content: answer } }] });
   };
-  const r = await recognizeReceipt('sk-test', 'AAAA');
+  const r = await recognizeReceipt({ ...DEFAULT_AI, apiKey: 'sk-or-test' }, 'AAAA');
   assert.equal(r.items[0].name, 'Кофе');
+  assert.equal(r.items[0].price, 500);
+  assert.deepEqual(calls.map((c) => c.body.model), ['openrouter/free', 'big/vision:free']);
   const [call] = calls;
-  assert.match(call.url, /\/v1\/messages/);
-  assert.equal(call.headers.get('x-api-key'), 'sk-test');
-  assert.match(call.headers.get('anthropic-beta'), /server-side-fallback-2026-07-01/);
-  assert.equal(call.body.model, 'claude-opus-5-5');
-  assert.equal(call.body.fallbacks, 'default');
-  assert.equal(call.body.output_config.format.type, 'json_schema');
-  assert.equal(call.body.messages[0].content[0].source.data, 'AAAA');
+  assert.equal(call.url, 'https://openrouter.ai/api/v1/chat/completions');
+  assert.equal(call.auth, 'Bearer sk-or-test');
+  assert.equal(call.body.messages[0].role, 'system');
+  assert.equal(call.body.messages[1].content[0].image_url.url, 'data:image/jpeg;base64,AAAA');
+});
 
-  globalThis.fetch = async () => new Response(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'bad' } }), { status: 401 });
-  await assert.rejects(recognizeReceipt('bad', 'AAAA'), /Неверный API-ключ/);
+test('does not retry on a bad key and requires a key', async () => {
+  let n = 0;
+  globalThis.fetch = async () => (n++, reply(401, { error: { message: 'No auth' } }));
+  await assert.rejects(recognizeReceipt({ apiKey: 'bad', baseUrl: 'https://example.com/v1', model: 'x' }, 'AAAA'), /Неверный API-ключ/);
+  assert.equal(n, 1);
+  await assert.rejects(askText({ ...DEFAULT_AI, apiKey: ' ' }, { system: '', messages: [] }), /ключ/);
+  await assert.rejects(askText({ apiKey: 'k', baseUrl: 'https://example.com/v1', model: 'auto' }, { system: '', messages: [] }), /модель вручную/);
 });

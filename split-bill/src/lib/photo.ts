@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 /**
  * Снимает или выбирает фото и возвращает его в JPEG base64, уменьшенным до 1568 px по длинной стороне:
- * больше Claude всё равно не использует, а запрос становится в разы легче.
+ * больше модели всё равно не используют, а запрос становится в разы легче.
  */
 export async function pickPhoto(source: 'camera' | 'library'): Promise<string | null> {
   if (source === 'camera') {

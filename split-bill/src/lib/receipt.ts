@@ -1,4 +1,4 @@
-import { askJson, imageBlock } from './claude';
+import { askJson, imagePart, type AiConfig } from './ai';
 import { newId } from './split';
 import type { BillItem } from './types';
 
@@ -9,31 +9,22 @@ quantity — количество; price — итоговая сумма стр�
 верни их процент в serviceFeePercent (0, если нет). total — итог к оплате по чеку, или null, если его не видно.
 Если на фото не чек, верни пустой список items.`;
 
-const SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['merchant', 'items', 'total', 'serviceFeePercent'],
-  properties: {
-    merchant: { type: ['string', 'null'] },
-    total: { type: ['number', 'null'] },
-    serviceFeePercent: { type: 'number' },
-    items: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name', 'quantity', 'price'],
-        properties: { name: { type: 'string' }, quantity: { type: 'number' }, price: { type: 'number' } },
-      },
-    },
-  },
+const EXAMPLE = {
+  merchant: 'Кафе «Ромашка»',
+  total: 1850,
+  serviceFeePercent: 10,
+  items: [
+    { name: 'Борщ', quantity: 2, price: 700 },
+    { name: 'Скидка', quantity: 1, price: -100 },
+  ],
 };
 
+/** Ответ модели как есть: бесплатные модели могут прислать числа строками («1 250,50») или пропустить поля. */
 export interface RawReceipt {
-  merchant: string | null;
-  total: number | null;
-  serviceFeePercent: number;
-  items: { name: string; quantity: number; price: number }[];
+  merchant?: unknown;
+  total?: unknown;
+  serviceFeePercent?: unknown;
+  items?: unknown;
 }
 
 export interface ParsedReceipt {
@@ -43,31 +34,40 @@ export interface ParsedReceipt {
   items: BillItem[];
 }
 
+export function toNumber(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string') return NaN;
+  return Number(value.replace(/[\s ₽]|руб\.?/g, '').replace(',', '.'));
+}
+
 /** Приводит ответ модели к позициям счёта: отбрасывает пустые строки, округляет до копеек. */
 export function normalizeReceipt(raw: RawReceipt): ParsedReceipt {
-  const items = (raw.items ?? [])
-    .filter((i) => i && i.name?.trim() && Number.isFinite(i.price) && i.price !== 0)
+  const list = Array.isArray(raw?.items) ? (raw.items as Record<string, unknown>[]) : [];
+  const items = list
+    .map((i) => ({ name: typeof i?.name === 'string' ? i.name.trim() : '', price: toNumber(i?.price), quantity: toNumber(i?.quantity) }))
+    .filter((i) => i.name && Number.isFinite(i.price) && i.price !== 0)
     .map((i) => ({
       id: newId(),
-      name: i.name.trim(),
+      name: i.name,
       quantity: Number.isFinite(i.quantity) && i.quantity > 0 ? i.quantity : 1,
       price: Math.round(i.price * 100) / 100,
       assignees: [],
     }));
-  const tip = Number(raw.serviceFeePercent);
+  const tip = toNumber(raw?.serviceFeePercent);
+  const total = toNumber(raw?.total);
   return {
-    merchant: raw.merchant?.trim() || undefined,
-    total: typeof raw.total === 'number' && raw.total > 0 ? raw.total : undefined,
+    merchant: typeof raw?.merchant === 'string' ? raw.merchant.trim() || undefined : undefined,
+    total: Number.isFinite(total) && total > 0 ? total : undefined,
     tipPercent: Number.isFinite(tip) && tip > 0 && tip <= 50 ? tip : 0,
     items,
   };
 }
 
-export async function recognizeReceipt(apiKey: string, jpegBase64: string): Promise<ParsedReceipt> {
-  const raw = await askJson<RawReceipt>(apiKey, {
+export async function recognizeReceipt(ai: AiConfig, jpegBase64: string): Promise<ParsedReceipt> {
+  const raw = await askJson<RawReceipt>(ai, {
     system: SYSTEM,
-    schema: SCHEMA,
-    content: [imageBlock(jpegBase64), { type: 'text', text: 'Распознай этот чек.' }],
+    example: EXAMPLE,
+    content: [imagePart(jpegBase64), { type: 'text', text: 'Распознай этот чек.' }],
   });
   return normalizeReceipt(raw);
 }

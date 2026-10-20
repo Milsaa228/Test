@@ -26,10 +26,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: android-apk-${{ github.ref }}
-  cancel-in-progress: false
-
 env:
   RELEASE_TAG: apk
 
@@ -83,6 +79,11 @@ jobs:
     if: needs.plan.outputs.apps != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Очередь на каждое приложение отдельно: свежая сборка ждёт предыдущую того же приложения,
+    # поэтому старый APK не затрёт новый, а сборки разных приложений не мешают друг другу.
+    concurrency:
+      group: apk-${{ github.ref }}-${{ matrix.app }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:

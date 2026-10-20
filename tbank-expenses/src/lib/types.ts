@@ -41,3 +41,10 @@ export interface MonthStats {
   daily: number[];
   topMerchants: { name: string; amount: number; count: number }[];
 }
+
+/** Реплика в чате с «двойником». */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  at: string;
+}

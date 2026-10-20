@@ -26,6 +26,7 @@ export default function RootLayout() {
       >
         <Tabs.Screen name="index" options={{ title: 'Аналитика', tabBarIcon: ({ focused }) => <TabIcon glyph="📊" focused={focused} /> }} />
         <Tabs.Screen name="operations" options={{ title: 'Операции', tabBarIcon: ({ focused }) => <TabIcon glyph="🧾" focused={focused} /> }} />
+        <Tabs.Screen name="assistant" options={{ title: 'Двойник', tabBarIcon: ({ focused }) => <TabIcon glyph="🧠" focused={focused} /> }} />
         <Tabs.Screen name="settings" options={{ title: 'Источники', tabBarIcon: ({ focused }) => <TabIcon glyph="⚙️" focused={focused} /> }} />
       </Tabs>
     </DataProvider>

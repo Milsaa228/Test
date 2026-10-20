@@ -5,7 +5,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, 
 import { card, colors } from '../components/theme';
 import { useData } from '../context/DataContext';
 import { formatMoney } from '../lib/stats';
-import { loadToken, saveToken } from '../lib/storage';
+import { loadClaudeKey, loadToken, saveClaudeKey, saveToken } from '../lib/storage';
 import { fetchAccounts, type BankAccount } from '../lib/tbankApi';
 
 const PERIODS = [3, 6, 12];
@@ -27,9 +27,17 @@ export default function SettingsScreen() {
   const account = pickedAccount ?? settings.accountNumber;
   const [period, setPeriod] = useState(6);
   const [busy, setBusy] = useState<string | null>(null);
+  const [claudeKey, setClaudeKey] = useState('');
+  const [claudeSaved, setClaudeSaved] = useState(false);
 
   useEffect(() => {
     loadToken().then((t) => t && setToken(t));
+    loadClaudeKey().then((k) => {
+      if (k) {
+        setClaudeKey(k);
+        setClaudeSaved(true);
+      }
+    });
   }, []);
 
   const run = async (label: string, fn: () => Promise<void>) => {
@@ -74,17 +82,35 @@ export default function SettingsScreen() {
       notify('Импорт завершён', `Добавлено: ${added}${skipped ? `\nПропущено (отклонённые/пустые): ${skipped}` : ''}`);
     });
 
+  const onSaveClaudeKey = () =>
+    run('Сохраняем ключ…', async () => {
+      const key = claudeKey.trim();
+      if (!key.startsWith('sk-')) throw new Error('Ключ Claude API начинается с «sk-». Создайте его на console.anthropic.com.');
+      await saveClaudeKey(key);
+      setClaudeSaved(true);
+      notify('Ключ сохранён', 'Теперь можно задавать вопросы на вкладке «Двойник».');
+    });
+
+  const onRemoveClaudeKey = () =>
+    run('Удаляем ключ…', async () => {
+      await saveClaudeKey(null);
+      setClaudeKey('');
+      setClaudeSaved(false);
+    });
+
   const onClear = () => {
     const doClear = () => run('Удаляем…', clear).then(() => {
       setToken('');
+      setClaudeKey('');
+      setClaudeSaved(false);
       setAccounts([]);
       setAccount(undefined);
     });
     if (Platform.OS === 'web') {
-      if (window.confirm('Удалить все операции и токен?')) doClear();
+      if (window.confirm('Удалить все операции, историю чата и ключи?')) doClear();
       return;
     }
-    Alert.alert('Удалить все данные?', 'Операции и сохранённый токен будут удалены с устройства.', [
+    Alert.alert('Удалить все данные?', 'Операции, история чата, токен и ключ Claude будут удалены с устройства.', [
       { text: 'Отмена', style: 'cancel' },
       { text: 'Удалить', style: 'destructive', onPress: doClear },
     ]);
@@ -158,6 +184,32 @@ export default function SettingsScreen() {
         {settings.lastSyncAt && (
           <Text style={styles.hint}>Последняя синхронизация: {new Date(settings.lastSyncAt).toLocaleString('ru-RU')}</Text>
         )}
+      </View>
+
+      <View style={card}>
+        <Text style={styles.title}>Claude API — «Двойник»</Text>
+        <Text style={styles.text}>
+          Ключ нужен для чата на вкладке «Двойник». Создайте его на console.anthropic.com. Запросы идут напрямую на
+          api.anthropic.com; модели отправляется сводка расходов, а не вся выписка.
+        </Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ключ (sk-ant-…)"
+          placeholderTextColor={colors.muted}
+          value={claudeKey}
+          onChangeText={setClaudeKey}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Button label="Сохранить ключ" onPress={onSaveClaudeKey} disabled={!!busy || !claudeKey.trim()} primary={!claudeSaved} />
+        {claudeSaved && <Button label="Удалить ключ" onPress={onRemoveClaudeKey} disabled={!!busy} danger />}
+        <Text style={styles.hint}>
+          {Platform.OS === 'web'
+            ? 'В web-версии ключ хранится только в памяти до перезагрузки страницы.'
+            : 'Ключ хранится в защищённом хранилище устройства (Keychain / Keystore).'}
+          {claudeSaved ? ' Ключ сохранён.' : ''}
+        </Text>
       </View>
 
       <View style={card}>

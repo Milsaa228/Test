@@ -13,6 +13,13 @@ const TEMPLATES: { category: string; mcc: string; names: string[]; min: number; 
   { category: 'Переводы', mcc: '', names: ['Перевод Ивану П.', 'Перевод Марии С.'], min: 500, max: 5000, perMonth: 3 },
 ];
 
+/** Ежемесячные подписки и регулярные платежи: фиксированный день и сумма. */
+const SUBSCRIPTIONS: { category: string; mcc: string; name: string; amount: number; day: number }[] = [
+  { category: 'Развлечения', mcc: '5815', name: 'Яндекс Плюс', amount: 399, day: 12 },
+  { category: 'Связь', mcc: '4814', name: 'МТС, тариф', amount: 690, day: 20 },
+  { category: 'Спорт', mcc: '7997', name: 'Фитнес-клуб DDX', amount: 2900, day: 3 },
+];
+
 /** Детерминированный генератор, чтобы демо выглядело одинаково при каждом запуске. */
 function rng(seed: number) {
   return () => {
@@ -45,6 +52,20 @@ export function generateDemo(months = 6): Transaction[] {
           source: 'demo',
         });
       }
+    }
+    for (const sub of SUBSCRIPTIONS) {
+      if (m === 0 && sub.day > now.getDate()) continue;
+      txs.push({
+        id: `demo|${m}|sub|${sub.name}`,
+        date: new Date(first.getFullYear(), first.getMonth(), sub.day, 7).toISOString(),
+        amount: sub.amount,
+        direction: 'expense',
+        currency: 'RUB',
+        category: sub.category,
+        description: sub.name,
+        mcc: sub.mcc,
+        source: 'demo',
+      });
     }
     if (m > 0 || now.getDate() >= 5) {
       txs.push({

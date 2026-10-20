@@ -6,10 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 
 const out = mkdtempSync(join(tmpdir(), 'geo-notes-test-'));
 execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node',
-  '--skipLibCheck', '--strict', 'src/lib/geo.ts', 'src/lib/share.ts', 'src/lib/types.ts'], { stdio: 'inherit' });
+  '--skipLibCheck', '--strict', 'src/lib/geo.ts', 'src/lib/share.ts', 'src/lib/mapHtml.ts', 'src/lib/types.ts'], { stdio: 'inherit' });
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');
 const require = createRequire(join(out, 'x.js'));
 const {
@@ -20,6 +21,7 @@ const {
   utf8Encode, utf8Decode, base64UrlEncode, base64UrlDecode, encodeNotes, decodeNotes, buildImportLink, extractData, mergeNotes,
   yandexMapsUrl, geoUri, shareText,
 } = require('./share.js');
+const { buildMapHtml, commandScript, jsonForScript, parseMapEvent, LEAFLET_JS, LEAFLET_CSS } = require('./mapHtml.js');
 
 // Красная площадь и окрестности. 1° широты ≈ 111 195 м.
 const BASE = { latitude: 55.7539, longitude: 37.6208 };
@@ -278,4 +280,85 @@ test('map links and share text', () => {
   assert.match(text, /geonotes:\/\/import\?data=/);
   assert.equal(decodeNotes(text).length, 1, 'whole shared message can be pasted into import');
   assert.match(shareText([note('a'), note('b')]), /^Гео-заметки \(2\):/);
+});
+
+// Страница карты выполняется в песочнице с заглушками Leaflet и DOM: проверяем протокол и что текст не попадает в HTML.
+function runMapPage(init) {
+  const html = buildMapHtml(init);
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  const sent = [];
+  const el = () => ({ style: {}, children: [], className: '', textContent: '', setAttribute() {}, appendChild(c) { this.children.push(c); } });
+  const layer = () => ({ layers: [], handlers: {}, addTo(g) { if (g && g.layers) g.layers.push(this); return this; }, clearLayers() { this.layers = []; },
+    on(ev, fn) { this.handlers[ev] = fn; return this; }, bindPopup(c) { this.popup = c; return this; } });
+  const mapObj = { handlers: {}, views: [], setView() { return this; }, on(ev, fn) { this.handlers[ev] = fn; }, flyTo(at, z) { this.views.push([at, z]); },
+    getZoom: () => 12, attributionControl: { setPrefix() {} } };
+  const L = {
+    map: () => mapObj, tileLayer: () => layer(), layerGroup: () => layer(),
+    circle: (at, o) => Object.assign(layer(), { kind: 'circle', at, o }),
+    circleMarker: (at, o) => Object.assign(layer(), { kind: 'dot', at, o }),
+    marker: (at, o) => Object.assign(layer(), { kind: 'marker', at, o }),
+    divIcon: (o) => o,
+    Control: { extend: (proto) => function () { return { addTo(m) { proto.onAdd(m); return this; } }; } },
+    DomUtil: { create: el }, DomEvent: { disableClickPropagation() {}, on() {} },
+  };
+  const window = { L, ReactNativeWebView: { postMessage: (m) => sent.push(JSON.parse(m)) } };
+  const document = { createElement: el, getElementById: () => el() };
+  const ctx = vm.createContext({ window, document, L, Date, Math, String, Array, JSON, isFinite });
+  for (const code of scripts) vm.runInContext(code, ctx);
+  return { html, sent, map: mapObj, update: (cmd) => vm.runInContext(commandScript(cmd), ctx), window };
+}
+
+test('map page: leaflet pinned with SRI, OSM attribution', () => {
+  const { html } = runMapPage({ center: BASE, zoom: 15, colors: { zone: 'z', zoneStroke: 's', text: 't', danger: 'd', muted: 'm' } });
+  assert.match(LEAFLET_JS.src, /leaflet@1\.9\.4\/dist\/leaflet\.js$/);
+  assert.ok(html.includes(`integrity="${LEAFLET_JS.integrity}"`) && html.includes(`integrity="${LEAFLET_CSS.integrity}"`));
+  assert.ok(html.includes('https://tile.openstreetmap.org/{z}/{x}/{y}.png'));
+  assert.ok(html.includes('OpenStreetMap'));
+});
+
+test('map page: protocol and safe note text', () => {
+  const page = runMapPage({ center: BASE, zoom: 15, colors: { zone: 'z', zoneStroke: 's', text: 't', danger: 'd', muted: 'm' } });
+  assert.deepEqual(page.sent, [{ type: 'ready' }]);
+  const evil = '</script><img src=x onerror=alert(1)>\u2028\u2029';
+  page.update({ type: 'options', pickerMode: false, canPick: true, canOpen: false });
+  page.update({ type: 'notes', notes: [{ id: 'n1', latitude: 55.75, longitude: 37.62, radius: 100, emoji: '🍔', text: evil }] });
+  const html = buildMapHtml({ center: BASE, zoom: 15, colors: { zone: 'z', zoneStroke: 's', text: 't', danger: 'd', muted: 'm' } });
+  assert.ok(!html.includes('innerHTML'));
+  assert.ok(!commandScript({ type: 'notes', notes: [{ id: 'x', latitude: 0, longitude: 0, radius: 1, emoji: '', text: evil }] }).includes('</script>'));
+  assert.equal(JSON.parse(jsonForScript(evil)), evil);
+
+  page.update({ type: 'options', pickerMode: false, canPick: true, canOpen: true });
+  page.map.handlers.contextmenu({ latlng: { wrap: () => ({ lat: 55.7, lng: 37.6 }) } });
+  page.map.handlers.contextmenu({ latlng: { wrap: () => ({ lat: 55.7, lng: 37.6 }) } }); // повтор долгого нажатия гасится
+  page.map.handlers.click({ latlng: { wrap: () => ({ lat: 1, lng: 2 }) } }); // не режим выбора — касание не выбирает
+  assert.deepEqual(page.sent.slice(1), [{ type: 'pick', point: { latitude: 55.7, longitude: 37.6 } }]);
+  page.update({ type: 'view', center: BASE, zoom: 17 });
+  assert.equal(JSON.stringify(page.map.views), JSON.stringify([[[BASE.latitude, BASE.longitude], 17]]));
+});
+
+test('map page: markers use text nodes, open note on tap', () => {
+  const page = runMapPage({ center: BASE, zoom: 15, colors: { zone: 'z', zoneStroke: 's', text: 't', danger: 'd', muted: 'm' } });
+  const markers = [];
+  const origMarker = page.window.L.marker;
+  page.window.L.marker = (at, o) => { const m = origMarker(at, o); markers.push(m); return m; };
+  page.update({ type: 'options', pickerMode: false, canPick: false, canOpen: false });
+  page.update({ type: 'notes', notes: [{ id: 'n1', latitude: 55.75, longitude: 37.62, radius: 100, emoji: '<b>', text: '<img src=x onerror=alert(1)>' }] });
+  assert.equal(markers.length, 1);
+  assert.equal(markers[0].o.icon.html.textContent, '<b>');
+  assert.equal(markers[0].popup.children[0].textContent, '<b> <img src=x onerror=alert(1)>');
+  page.update({ type: 'options', pickerMode: false, canPick: false, canOpen: true });
+  markers[1].handlers.click();
+  assert.deepEqual(page.sent.at(-1), { type: 'open', id: 'n1' });
+  page.update({ type: 'options', pickerMode: true, canPick: true, canOpen: true });
+  assert.equal(markers[2].o.interactive, false, 'in picker mode taps go to the map');
+});
+
+test('map events from the page are validated', () => {
+  assert.deepEqual(parseMapEvent('{"type":"pick","point":{"latitude":55.7,"longitude":37.6}}'), { type: 'pick', point: { latitude: 55.7, longitude: 37.6 } });
+  assert.deepEqual(parseMapEvent('{"type":"open","id":"n1"}'), { type: 'open', id: 'n1' });
+  assert.equal(parseMapEvent('{"type":"pick","point":{"latitude":"55","longitude":37}}'), null);
+  assert.equal(parseMapEvent('{"type":"pick","point":{"latitude":95,"longitude":37}}'), null);
+  assert.equal(parseMapEvent('{"type":"open","id":5}'), null);
+  assert.equal(parseMapEvent('{"type":"eval"}'), null);
+  assert.equal(parseMapEvent('not json'), null);
 });

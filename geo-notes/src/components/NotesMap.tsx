@@ -1,4 +1,4 @@
-// Web-версия: react-native-maps в браузере не работает, поэтому вместо карты — список и ввод координат.
+// Web-версия: карта (WebView с Leaflet) есть только в приложении, в браузере вместо неё — список и ввод координат.
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 

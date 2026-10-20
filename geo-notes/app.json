@@ -49,8 +49,7 @@
         {
           "enableRemoteNotifications": false
         }
-      ],
-      "react-native-maps"
+      ]
     ],
     "scheme": "geonotes"
   }

@@ -7,7 +7,7 @@
 
 - Заметка: текст, эмодзи-категория, радиус 50 / 100 / 300 м, режим «Каждый раз» или «Один раз».
 - Место — где вы сейчас или любая точка: удерживайте палец на карте (вкладка «Карта») или коснитесь карты в форме заметки.
-- Карта со всеми заметками, зонами срабатывания и вашей позицией. Нажатие на подпись маркера открывает заметку.
+- Карта со всеми заметками, зонами срабатывания и вашей позицией. Нажатие на маркер открывает заметку.
 - Список «Рядом», отсортированный по расстоянию, с подписями «≈ 120 м» и отметкой «вы здесь».
 - Карточка заметки: изменить, удалить, поделиться, открыть в Яндекс Картах или другом приложении карт
   (`geo:` на Android, Apple Maps на iOS), «Напомнить снова» для сработавших одноразовых.
@@ -54,8 +54,9 @@ Development build: `npx expo run:ios` / `npx expo run:android` локально 
 `NSLocation*UsageDescription`, `UIBackgroundModes: location` на iOS и `ACCESS_BACKGROUND_LOCATION` на Android
 (через плагин `expo-location`). Для фонового режима система попросит доступ «Всегда» / «Разрешить в любом режиме».
 
-Карта на Android в собственной сборке использует Google Maps: добавьте ключ в плагин
-`["react-native-maps", { "androidGoogleMapsApiKey": "…" }]` в `app.json`. В Expo Go и на iOS (Apple Maps) ключ не нужен.
+Карта — OpenStreetMap через Leaflet (`react-native-webview`), ключи API не нужны. Для карты нужен интернет:
+Leaflet (`unpkg.com`, версия закреплена, с проверкой целостности SRI) и тайлы (`tile.openstreetmap.org`) загружаются
+из сети. Без сети вместо карты появится сообщение и кнопка «Повторить»; заметки и напоминания работают и без карты.
 
 В браузере (`npx expo start --web`) карты нет: вместо неё список заметок и ввод координат. Локальных уведомлений
 и фонового режима тоже нет, работает только баннер.
@@ -65,10 +66,10 @@ Development build: `npx expo run:ios` / `npx expo run:android` локально 
 ```
 src/app/            экраны (Expo Router): _layout (стек), (tabs)/ index (карта), list (рядом), settings,
                     new (новая заметка), note/[id] (карточка и редактирование), import (подтверждение импорта)
-src/components/     NotesMap (.native — react-native-maps, без суффикса — web), NoteForm, ProximityBanner,
+src/components/     NotesMap (.native — Leaflet/OpenStreetMap в WebView, без суффикса — web), NoteForm, ProximityBanner,
                     LocationNotice, кнопки, диалоги, обмен, тема
 src/context/        NotesContext: заметки, настройки, слежение за позицией, срабатывания
-src/lib/            geo (haversine, nearbyTriggers, геозоны), share (ссылки, base64url, слияние),
+src/lib/            geo (haversine, nearbyTriggers, геозоны), share (ссылки, base64url, слияние), mapHtml (страница карты),
                     notifications, background (фоновая задача геозон), storage, types
 scripts/test.mjs    тесты на node:test
 ```

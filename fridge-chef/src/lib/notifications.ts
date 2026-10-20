@@ -58,7 +58,7 @@ export async function rescheduleDigest(products: Product[], enabled: boolean): P
       identifier: DIGEST_ID,
       content: {
         title: `Завтра испортится ${names.length} ${plural(names.length, ['продукт', 'продукта', 'продуктов'])}`,
-        body: `${list}. Загляните в «Рецепты» — Claude подскажет, что приготовить.`,
+        body: `${list}. Загляните в «Рецепты» — нейросеть подскажет, что приготовить.`,
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: fireAt, channelId: 'default' },
     });

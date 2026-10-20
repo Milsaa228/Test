@@ -2,13 +2,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { DEFAULT_AI } from './ai';
 import type { Product, Recipe, Settings } from './types';
 
 const PRODUCTS_KEY = 'products.v1';
 const SUGGESTIONS_KEY = 'suggestions.v1';
 const FAVORITES_KEY = 'favorites.v1';
 const SETTINGS_KEY = 'settings.v1';
-const API_KEY = 'anthropic_api_key';
+const API_KEY = 'ai_api_key';
 
 export const DEFAULT_SETTINGS: Settings = {
   diet: 'обычная',
@@ -16,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = {
   maxMinutes: 30,
   servings: 2,
   notifications: false,
+  aiBaseUrl: DEFAULT_AI.baseUrl,
+  aiModel: DEFAULT_AI.model,
 };
 
 async function loadJson<T>(key: string, fallback: T): Promise<T> {
@@ -41,7 +44,7 @@ export async function loadSettings(): Promise<Settings> {
 
 export const saveSettings = (v: Settings) => AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(v));
 
-// Ключ храним в Keychain / Keystore. На web SecureStore недоступен, поэтому ключ лежит в localStorage
+// API-ключ храним в Keychain / Keystore. На web SecureStore недоступен, поэтому ключ лежит в localStorage
 // (через AsyncStorage) — это менее надёжно, web-версия нужна в основном для разработки.
 export async function loadApiKey(): Promise<string | null> {
   if (Platform.OS === 'web') return AsyncStorage.getItem(API_KEY);

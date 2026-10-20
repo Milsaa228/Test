@@ -9,7 +9,7 @@ export interface Photo {
   height: number;
 }
 
-/** Длинная сторона, до которой уменьшаем фото: больше Claude всё равно не использует. */
+/** Длинная сторона, до которой уменьшаем фото: больше нейросети всё равно не нужно. */
 const MAX_SIDE = 1568;
 
 function toPhotos(res: ImagePicker.ImagePickerResult): Photo[] {

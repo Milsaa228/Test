@@ -48,7 +48,7 @@ export default function InventoryScreen() {
         <Empty
           glyph="🧊"
           title="Холодильник пуст"
-          text="Сфотографируйте полки — Claude сам распознает продукты и прикинет, сколько они пролежат. Или добавьте продукт вручную."
+          text="Сфотографируйте полки — нейросеть сама распознает продукты и прикинет, сколько они пролежат. Или добавьте продукт вручную."
         />
       }
       renderItem={({ item }) => <ProductRow product={item} onUse={() => markUsed(item.id)} onDelete={() => onDelete(item)} />}

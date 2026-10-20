@@ -11,18 +11,18 @@ import { suggestRecipes } from '../../lib/recipes';
 import type { Product, Recipe } from '../../lib/types';
 
 export default function RecipesScreen() {
-  const { apiKey, products, settings, suggestions, favorites, setSuggestions } = useData();
+  const { apiKey, ai, products, settings, suggestions, favorites, setSuggestions } = useData();
   const [busy, setBusy] = useState(false);
 
   const onSuggest = async () => {
     if (!apiKey) {
-      notify('Нужен ключ Claude API', 'Добавьте его на вкладке «Настройки».');
+      notify('Нужен ключ нейросети', 'Добавьте бесплатный ключ на вкладке «Настройки».');
       return;
     }
     setBusy(true);
     try {
-      const recipes = await suggestRecipes(apiKey, products, settings);
-      if (!recipes.length) notify('Не получилось', 'Claude не предложил ни одного рецепта. Попробуйте ещё раз или смягчите ограничения.');
+      const recipes = await suggestRecipes(ai, products, settings);
+      if (!recipes.length) notify('Не получилось', 'Нейросеть не предложила ни одного рецепта. Попробуйте ещё раз или смягчите ограничения.');
       else await setSuggestions(recipes);
     } catch (e) {
       notify('Не удалось получить рецепты', errorText(e));
@@ -45,11 +45,11 @@ export default function RecipesScreen() {
         <Text style={styles.hint}>
           {products.length === 0
             ? 'Сначала добавьте продукты на вкладке «Мои продукты».'
-            : `Claude подберёт 3–5 блюд из ${products.length} продуктов, начиная с тех, что скоро испортятся. ${prefs}`}
+            : `Нейросеть подберёт 3–5 блюд из ${products.length} продуктов, начиная с тех, что скоро испортятся. ${prefs}`}
         </Text>
       </View>
 
-      {busy && <Busy text="Claude придумывает рецепты из того, что есть…" />}
+      {busy && <Busy text="Нейросеть придумывает рецепты из того, что есть…" />}
 
       {suggestions.length > 0 && <Text style={styles.section}>Предложения</Text>}
       {suggestions.map((r) => <RecipeCard key={r.id} recipe={r} products={products} favorite={favorites.some((f) => f.id === r.id)} />)}

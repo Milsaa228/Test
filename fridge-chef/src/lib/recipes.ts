@@ -1,6 +1,6 @@
-import { askJson } from './claude';
+import { askJson, type AiConfig } from './ai';
 import { daysLeft, sortByExpiry, SOON_DAYS } from './expiry';
-import { asUnit } from './fridge';
+import { asUnit, pickList, toList, toNumber, toText } from './fridge';
 import { findProduct, formatAmount, newId } from './inventory';
 import { DIFFICULTIES, UNITS, type Difficulty, type Product, type Recipe, type Settings } from './types';
 
@@ -13,55 +13,30 @@ uses — продукты из списка пользователя, котор
 не пиши. missing — чего не хватает (не больше 3 позиций, лучше 0–1). minutes — общее время готовки.
 steps — понятные шаги по-русски, без нумерации в тексте. description — одна фраза, чем блюдо хорошо.`;
 
-const SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['recipes'],
-  properties: {
-    recipes: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['title', 'description', 'minutes', 'difficulty', 'servings', 'uses', 'missing', 'steps'],
-        properties: {
-          title: { type: 'string' },
-          description: { type: 'string' },
-          minutes: { type: 'integer' },
-          difficulty: { type: 'string', enum: [...DIFFICULTIES] },
-          servings: { type: 'integer' },
-          uses: {
-            type: 'array',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['name', 'amount', 'unit'],
-              properties: {
-                name: { type: 'string' },
-                amount: { type: ['number', 'null'] },
-                unit: { type: 'string', enum: [...UNITS] },
-              },
-            },
-          },
-          missing: { type: 'array', items: { type: 'string' } },
-          steps: { type: 'array', items: { type: 'string' } },
-        },
-      },
+const EXAMPLE = {
+  recipes: [
+    {
+      title: 'Оладьи на кефире',
+      description: 'Пышные оладьи за полчаса из кефира, который скоро испортится.',
+      minutes: 25,
+      difficulty: 'легко',
+      servings: 2,
+      uses: [
+        { name: 'Кефир', amount: 500, unit: 'мл' },
+        { name: 'Яйца', amount: 1, unit: 'шт' },
+        { name: 'Сахар', amount: null, unit: 'г' },
+      ],
+      missing: ['Мука'],
+      steps: ['Смешать кефир с яйцом и сахаром.', 'Всыпать муку до густоты сметаны.', 'Жарить на сковороде по 2 минуты с каждой стороны.'],
     },
-  },
+  ],
 };
 
+const FORMAT_HINT = `\ndifficulty — одно из: ${DIFFICULTIES.join(', ')}. unit — одно из: ${UNITS.join(', ')}.`;
+
+/** Ответ модели как есть: поля могут прийти строками, отсутствовать или быть другого типа. */
 export interface RawRecipes {
-  recipes: {
-    title: string;
-    description: string;
-    minutes: number;
-    difficulty: string;
-    servings: number;
-    uses: { name: string; amount: number | null; unit: string }[];
-    missing: string[];
-    steps: string[];
-  }[];
+  recipes?: unknown;
 }
 
 const MAX_RECIPES = 5;
@@ -82,49 +57,72 @@ export function buildRecipeRequest(products: Product[], settings: Settings, now:
   return `Продукты дома:\n${lines.join('\n')}\n\nПожелания:\n${wishes.join('\n')}`;
 }
 
+type Obj = Record<string, unknown>;
+const asObj = (value: unknown): Obj => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Obj) : {});
+
+/** Шаги: массив строк, массив объектов {text} или одна строка с переносами; нумерацию «1.» убираем. */
+function toSteps(value: unknown): string[] {
+  const list = typeof value === 'string' ? value.split(/\n+/) : toList(value);
+  return list
+    .map((s) => toText(typeof s === 'object' ? (asObj(s).text ?? asObj(s).step ?? asObj(s).description) : s))
+    .map((s) => s.replace(/^(?:шаг\s*)?\d+\s*[.)]\s*/i, '').trim())
+    .filter(Boolean);
+}
+
+/** «Не хватает»: массив строк или объектов {name}, либо одна строка через запятую. */
+function toNames(value: unknown): string[] {
+  const list = typeof value === 'string' ? value.split(/[,;\n]+/) : toList(value);
+  return list.map((m) => toText(typeof m === 'object' ? asObj(m).name : m)).filter(Boolean);
+}
+
 /**
  * Приводит ответ модели к рецептам. Ингредиенты сверяем с инвентарём: имя берём как в списке
- * пользователя, а то, чего дома нет, переносим в «не хватает».
+ * пользователя, а то, чего дома нет, переносим в «не хватает». Никогда не бросает исключений.
  */
-export function normalizeRecipes(raw: RawRecipes, products: Product[], now: Date = new Date()): Recipe[] {
-  return (raw?.recipes ?? [])
-    .filter((r) => r && typeof r.title === 'string' && r.title.trim() && Array.isArray(r.steps) && r.steps.some((s) => s?.trim()))
+export function normalizeRecipes(raw: unknown, products: Product[], now: Date = new Date()): Recipe[] {
+  return pickList(raw, 'recipes')
+    .map(asObj)
+    .map((r) => ({ r, title: toText(r.title ?? r.name), steps: toSteps(r.steps ?? r.instructions) }))
+    .filter(({ title, steps }) => title && steps.length)
     .slice(0, MAX_RECIPES)
-    .map((r) => {
+    .map(({ r, title, steps }) => {
       const uses: Recipe['uses'] = [];
-      const missing = new Set((r.missing ?? []).map((m) => m?.trim()).filter(Boolean));
-      for (const u of r.uses ?? []) {
-        if (!u?.name?.trim()) continue;
-        const product = findProduct(products, u.name);
+      const missing = new Set(toNames(r.missing));
+      for (const item of toList(r.uses ?? r.ingredients)) {
+        const u = typeof item === 'string' ? { name: item } : asObj(item);
+        const name = toText(u.name);
+        if (!name) continue;
+        const product = findProduct(products, name);
         if (!product) {
-          missing.add(u.name.trim());
+          missing.add(name);
           continue;
         }
         if (uses.some((x) => x.name === product.name)) continue;
-        const amount = typeof u.amount === 'number' && Number.isFinite(u.amount) && u.amount > 0 ? u.amount : null;
-        uses.push({ name: product.name, amount, unit: asUnit(u.unit) });
+        const amount = toNumber(u.amount);
+        uses.push({ name: product.name, amount: Number.isFinite(amount) && amount > 0 ? amount : null, unit: asUnit(u.unit) });
       }
-      const minutes = Number.isFinite(r.minutes) && r.minutes > 0 ? Math.round(r.minutes) : 30;
-      const servings = Number.isFinite(r.servings) && r.servings > 0 ? Math.round(r.servings) : 2;
+      const minutes = toNumber(r.minutes ?? r.time);
+      const servings = toNumber(r.servings);
+      const difficulty = toText(r.difficulty).toLowerCase();
       return {
         id: newId(),
-        title: r.title.trim(),
-        description: r.description?.trim() ?? '',
-        minutes,
-        difficulty: (DIFFICULTIES as readonly string[]).includes(r.difficulty) ? (r.difficulty as Difficulty) : 'средне',
-        servings,
+        title,
+        description: toText(r.description),
+        minutes: Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 30,
+        difficulty: (DIFFICULTIES as readonly string[]).includes(difficulty) ? (difficulty as Difficulty) : 'средне',
+        servings: Number.isFinite(servings) && servings > 0 ? Math.round(servings) : 2,
         uses,
-        missing: [...missing],
-        steps: r.steps.map((s) => s?.trim()).filter(Boolean),
+        missing: [...missing].slice(0, 10),
+        steps,
         createdAt: now.toISOString(),
       };
     });
 }
 
-export async function suggestRecipes(apiKey: string, products: Product[], settings: Settings): Promise<Recipe[]> {
-  const raw = await askJson<RawRecipes>(apiKey, {
-    system: SYSTEM,
-    schema: SCHEMA,
+export async function suggestRecipes(ai: AiConfig, products: Product[], settings: Settings): Promise<Recipe[]> {
+  const raw = await askJson<RawRecipes>(ai, {
+    system: SYSTEM + FORMAT_HINT,
+    example: EXAMPLE,
     content: [{ type: 'text', text: buildRecipeRequest(products, settings) }],
   });
   return normalizeRecipes(raw, products);

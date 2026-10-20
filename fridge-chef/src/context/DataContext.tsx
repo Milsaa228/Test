@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { DEFAULT_AI, type AiConfig } from '../lib/ai';
 import { consumeIngredients, consumeOne, mergeProducts } from '../lib/inventory';
 import { rescheduleDigest } from '../lib/notifications';
 import * as storage from '../lib/storage';
@@ -12,6 +13,8 @@ interface DataContextValue {
   favorites: Recipe[];
   settings: Settings;
   apiKey: string;
+  /** Готовые настройки для запросов к нейросети. */
+  ai: AiConfig;
   setApiKey: (key: string) => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<void>;
   addProducts: (incoming: Product[]) => Promise<{ added: number; updated: number }>;
@@ -143,12 +146,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setApiKeyState('');
   }, []);
 
+  // Пустые поля «Для продвинутых» означают настройки по умолчанию (OpenRouter, автовыбор модели).
+  const ai = useMemo(
+    () => ({ apiKey, baseUrl: settings.aiBaseUrl || DEFAULT_AI.baseUrl, model: settings.aiModel || DEFAULT_AI.model }),
+    [apiKey, settings.aiBaseUrl, settings.aiModel],
+  );
+
   const value = useMemo(
     () => ({
-      ready, products, suggestions, favorites, settings, apiKey, setApiKey, updateSettings, addProducts, saveProduct,
+      ready, products, suggestions, favorites, settings, apiKey, ai, setApiKey, updateSettings, addProducts, saveProduct,
       removeProduct, markUsed, cook, setSuggestions, toggleFavorite, findRecipe, clear,
     }),
-    [ready, products, suggestions, favorites, settings, apiKey, setApiKey, updateSettings, addProducts, saveProduct,
+    [ready, products, suggestions, favorites, settings, apiKey, ai, setApiKey, updateSettings, addProducts, saveProduct,
       removeProduct, markUsed, cook, setSuggestions, toggleFavorite, findRecipe, clear],
   );
 

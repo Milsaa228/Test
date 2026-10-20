@@ -1,29 +1,28 @@
 // Тесты чистой логики (без React Native): компилируем src/lib в CommonJS и проверяем через node:test.
-// claude.ts тянет @anthropic-ai/sdk — его реальный модуль из node_modules в тестах не вызывается.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const out = mkdtempSync(join(tmpdir(), 'fridge-test-'));
 execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node',
-  '--skipLibCheck', '--strict', 'src/lib/expiry.ts', 'src/lib/inventory.ts', 'src/lib/fridge.ts', 'src/lib/recipes.ts'], { stdio: 'inherit' });
+  '--skipLibCheck', '--strict', 'src/lib/expiry.ts', 'src/lib/inventory.ts', 'src/lib/fridge.ts', 'src/lib/recipes.ts', 'src/lib/ai.ts'], { stdio: 'inherit' });
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');
-symlinkSync(resolve('node_modules'), join(out, 'node_modules'), 'dir');
 const require = createRequire(join(out, 'x.js'));
 const { addDays, dateKey, daysLeft, expiryDigest, expiryLabel, expiryStatus, formatRuDate, parseRuDate, plural, sortByExpiry } = require('./expiry.js');
 const { consumeIngredients, consumeOne, convert, formatAmount, mergeProducts, normalizeName } = require('./inventory.js');
-const { normalizeFridge } = require('./fridge.js');
-const { buildRecipeRequest, normalizeRecipes } = require('./recipes.js');
+const { asCategory, asUnit, normalizeFridge, recognizeFridge, toNumber } = require('./fridge.js');
+const { buildRecipeRequest, normalizeRecipes, suggestRecipes } = require('./recipes.js');
+const { DEFAULT_AI } = require('./ai.js');
 
 const NOW = new Date(2026, 9, 20, 12, 0); // 20 октября 2026, полдень по местному времени
 const product = (name, expiresAt, extra = {}) => ({
   id: name, name, amount: 1, unit: 'шт', category: 'Другое', addedAt: '2026-10-18', expiresAt, ...extra,
 });
-const SETTINGS = { diet: 'вегетарианская', exclusions: 'орехи', maxMinutes: 30, servings: 2, notifications: false };
+const SETTINGS = { diet: 'вегетарианская', exclusions: 'орехи', maxMinutes: 30, servings: 2, notifications: false, aiBaseUrl: DEFAULT_AI.baseUrl, aiModel: DEFAULT_AI.model };
 
 test('dates and days left', () => {
   assert.equal(dateKey(NOW), '2026-10-20');
@@ -197,4 +196,124 @@ test('normalizes recipes against inventory', () => {
   assert.deepEqual([b.minutes, b.difficulty, b.servings, b.uses[0].amount], [30, 'средне', 2, null]);
   assert.equal(normalizeRecipes({ recipes: Array(8).fill({ ...a, uses: [], missing: [] }) }, inventory).length, 5);
   assert.deepEqual(normalizeRecipes(undefined, inventory), []);
+});
+
+test('tolerant number, unit and category parsing', () => {
+  assert.equal(toNumber(5), 5);
+  assert.equal(toNumber('1 250,5'), 1250.5);
+  assert.equal(toNumber('около 3 шт'), 3);
+  assert.equal(toNumber('2-3'), 2);
+  assert.ok(Number.isNaN(toNumber('по вкусу')));
+  assert.ok(Number.isNaN(toNumber(null)));
+  assert.ok(Number.isNaN(toNumber({ value: 1 })));
+  assert.deepEqual(['Г.', 'грамм', 'ml', 'Литров', 'упаковка', 'kg', 7, 'ведро'].map(asUnit), ['г', 'г', 'мл', 'л', 'уп', 'кг', 'шт', 'шт']);
+  assert.deepEqual([' овощи ', 'МОЛОЧНОЕ', 'Еда', 42].map(asCategory), ['Овощи', 'Молочное', 'Другое', 'Другое']);
+});
+
+test('fridge normalization survives sloppy free-model output', () => {
+  const items = normalizeFridge({
+    products: [
+      { name: 'сыр', amount: '200 г', unit: 'гр', category: 'молочное', shelfLifeDays: '10', brand: 'лишнее поле' },
+      { name: 'яйца', quantity: 6, unit: 'шт.', category: null, days: 14 },
+      'огурцы',
+      { name: 123, amount: 'много', unit: ['шт'], category: {}, shelfLifeDays: 'неделя' },
+      { title: 'кефир' },
+      null,
+      42,
+      { name: { ru: 'нет' } },
+    ],
+    comment: 'Вот что я нашёл',
+  }, NOW);
+  assert.deepEqual(items.map((p) => [p.name, p.amount, p.unit, p.category, p.expiresAt]), [
+    ['Сыр', 200, 'г', 'Молочное', '2026-10-30'],
+    ['Яйца', 6, 'шт', 'Другое', '2026-11-03'],
+    ['Огурцы', 1, 'шт', 'Другое', '2026-10-27'],
+    ['123', 1, 'шт', 'Другое', '2026-10-27'],
+    ['Кефир', 1, 'шт', 'Другое', '2026-10-27'],
+  ]);
+  // Другие формы корня: голый массив, другой ключ, вложенность, мусор.
+  assert.equal(normalizeFridge([{ name: 'хлеб' }], NOW)[0].name, 'Хлеб');
+  assert.equal(normalizeFridge({ items: ['масло'] }, NOW)[0].name, 'Масло');
+  assert.equal(normalizeFridge({ result: { products: ['соль'] } }, NOW)[0].name, 'Соль');
+  for (const junk of [undefined, 'текст', 5, { products: 'молоко' }, { products: {} }, []]) assert.ok(Array.isArray(normalizeFridge(junk, NOW)));
+});
+
+test('recipe normalization survives sloppy free-model output', () => {
+  const inventory = [product('Кефир', '2026-10-21', { amount: 1, unit: 'л' }), product('Яйца', '2026-10-30', { amount: 6 })];
+  const recipes = normalizeRecipes([
+    {
+      name: 'Омлет', minutes: '15 минут', difficulty: 'Легко', servings: '2 порции', extra: true,
+      ingredients: ['Яйца', { name: 'кефир', amount: 'по вкусу', unit: 'стакан' }, { name: 'Молоко', amount: '100' }],
+      missing: 'Зелёный лук, сыр',
+      steps: '1. Взбить яйца\n2) Жарить',
+    },
+    { title: 'Шаги объектами', uses: { amount: 3 }, missing: [{ name: 'Мука' }, 5, null], steps: [{ text: 'Шаг 1. Смешать' }, null, 7] },
+    { title: 'Без шагов', steps: false },
+    { title: '   ', steps: ['x'] },
+    'просто строка',
+    null,
+  ], inventory, NOW);
+  assert.equal(recipes.length, 2);
+  const [a, b] = recipes;
+  assert.deepEqual([a.title, a.description, a.minutes, a.difficulty, a.servings], ['Омлет', '', 15, 'легко', 2]);
+  assert.deepEqual(a.uses, [{ name: 'Яйца', amount: null, unit: 'шт' }, { name: 'Кефир', amount: null, unit: 'шт' }]);
+  assert.deepEqual(a.missing, ['Зелёный лук', 'сыр', 'Молоко']);
+  assert.deepEqual(a.steps, ['Взбить яйца', 'Жарить']);
+  assert.deepEqual([b.uses, b.missing, b.steps, b.minutes, b.servings], [[], ['Мука', '5'], ['Смешать', '7'], 30, 2]);
+  for (const junk of [undefined, null, 'текст', { recipes: 'нет' }, { recipes: [{}] }]) assert.deepEqual(normalizeRecipes(junk, inventory), []);
+});
+
+function reply(status, body) {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+const CATALOG = [
+  { id: 'openrouter/free', pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'] } },
+  { id: 'big/vision:free', context_length: 128000, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'] } },
+  { id: 'small/text:free', context_length: 32000, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text'] } },
+  { id: 'paid/vision', context_length: 200000, pricing: { prompt: '0.000003', completion: '0.000015' }, architecture: { input_modalities: ['text', 'image'] } },
+];
+
+test('recognizes fridge photos via OpenRouter free vision models with fallback', async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/models')) return reply(200, { data: CATALOG });
+    const body = JSON.parse(init.body);
+    calls.push({ url: String(url), auth: new Headers(init.headers).get('authorization'), body });
+    if (body.model === 'openrouter/free') return reply(429, { error: { message: 'rate limited' } });
+    const answer = 'Вот продукты:\n```json\n{"products":[{"name":"молоко","amount":"1 л","unit":"л","category":"Молочное","shelfLifeDays":"5"},'
+      + '{"name":"помидоры","amount":3,"unit":"шт","category":"Овощи"}]}\n```';
+    return reply(200, { choices: [{ message: { content: answer } }] });
+  };
+  const products = await recognizeFridge({ ...DEFAULT_AI, apiKey: 'sk-or-test' }, ['AAAA', 'BBBB', 'CCCC', 'DDDD']);
+  assert.deepEqual(products.map((p) => [p.name, p.amount, p.unit, p.category]), [['Молоко', 1, 'л', 'Молочное'], ['Помидоры', 3, 'шт', 'Овощи']]);
+  assert.equal(products[0].expiresAt, addDays(dateKey(new Date()), 5));
+  assert.equal(products[1].expiresAt, addDays(dateKey(new Date()), 7));
+  // Платная и текстовая модели не используются; после 429 — следующая бесплатная модель с поддержкой фото.
+  assert.deepEqual(calls.map((c) => c.body.model), ['openrouter/free', 'big/vision:free']);
+  const [call] = calls;
+  assert.equal(call.url, 'https://openrouter.ai/api/v1/chat/completions');
+  assert.equal(call.auth, 'Bearer sk-or-test');
+  assert.equal(call.body.messages[0].role, 'system');
+  assert.match(call.body.messages[0].content, /"shelfLifeDays"/);
+  const content = call.body.messages[1].content;
+  assert.equal(content.filter((p) => p.type === 'image_url').length, 3);
+  assert.equal(content[0].image_url.url, 'data:image/jpeg;base64,AAAA');
+  assert.equal(content.at(-1).type, 'text');
+});
+
+test('recipes use a custom OpenAI-compatible API without images', async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return reply(200, { choices: [{ message: { content: '{"recipes":[{"title":"Сырники","minutes":"20","steps":["Смешать","Жарить"],"uses":[{"name":"Творог","amount":"300"}]}]}' } }] });
+  };
+  const inventory = [product('Творог', '2026-10-21', { amount: 400, unit: 'г' })];
+  const recipes = await suggestRecipes({ apiKey: 'k', baseUrl: 'http://localhost:11434/v1/', model: 'llama3' }, inventory, SETTINGS);
+  assert.deepEqual([recipes[0].title, recipes[0].minutes, recipes[0].uses[0].amount], ['Сырники', 20, 300]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://localhost:11434/v1/chat/completions');
+  assert.equal(calls[0].body.model, 'llama3');
+  assert.equal(typeof calls[0].body.messages[1].content[0].text, 'string');
+  assert.ok(!calls[0].body.messages[1].content.some((p) => p.type === 'image_url'));
 });

@@ -12,7 +12,7 @@ import { pickPhotos, takePhoto, toJpegBase64, type Photo } from '../lib/photos';
 import type { Product } from '../lib/types';
 
 export default function ScanScreen() {
-  const { apiKey, addProducts } = useData();
+  const { apiKey, ai, addProducts } = useData();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [found, setFound] = useState<Product[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -31,10 +31,10 @@ export default function ScanScreen() {
   };
 
   const onRecognize = async () => {
-    setBusy('Claude смотрит в холодильник…');
+    setBusy('Нейросеть смотрит в холодильник… Бесплатные модели иногда думают до минуты.');
     try {
       const images = await Promise.all(photos.map(toJpegBase64));
-      const products = await recognizeFridge(apiKey, images);
+      const products = await recognizeFridge(ai, images);
       setFound(products);
     } catch (e) {
       notify('Не получилось распознать', errorText(e));
@@ -58,7 +58,7 @@ export default function ScanScreen() {
   if (!apiKey) {
     return (
       <View style={styles.container}>
-        <Empty glyph="🔑" title="Нужен ключ Claude API" text="Распознавание продуктов работает через Claude. Добавьте свой ключ в настройках." />
+        <Empty glyph="🔑" title="Нужен ключ нейросети" text="Продукты на фото распознаёт нейросеть. Бесплатный ключ OpenRouter добавляется в настройках за пару минут." />
         <Button label="Открыть настройки" onPress={() => router.push('/settings')} primary />
       </View>
     );

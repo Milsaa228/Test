@@ -4,6 +4,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, Vi
 import { card, colors } from '../../components/theme';
 import { Busy, Button, Chip, confirm, errorText, notify } from '../../components/ui';
 import { useData } from '../../context/DataContext';
+import { AUTO_MODEL, DEFAULT_AI } from '../../lib/ai';
 import { notificationsSupported, requestNotificationPermission } from '../../lib/notifications';
 import { DIETS } from '../../lib/types';
 
@@ -17,13 +18,10 @@ export default function SettingsScreen() {
   const key = draftKey ?? apiKey;
   const exclusions = draftExclusions ?? settings.exclusions;
   const [busy, setBusy] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(false);
 
   const onSaveKey = async () => {
     const trimmed = key.trim();
-    if (trimmed && !trimmed.startsWith('sk-ant-')) {
-      notify('Похоже, это не ключ Anthropic', 'Ключ начинается с «sk-ant-». Его можно создать на console.anthropic.com.');
-      return;
-    }
     try {
       await setApiKey(trimmed);
       setKey(null);
@@ -60,14 +58,15 @@ export default function SettingsScreen() {
       {busy && <Busy text={busy} />}
 
       <View style={card}>
-        <Text style={styles.title}>Ключ Claude API</Text>
+        <Text style={styles.title}>Ключ нейросети (бесплатно)</Text>
         <Text style={styles.text}>
-          Фото и список продуктов отправляются напрямую в Claude (api.anthropic.com) с вашим ключом. Ключ хранится только на
-          этом устройстве.
+          Нужен для распознавания фото и подбора рецептов. Ключ OpenRouter бесплатный: откройте openrouter.ai → войдите
+          через Google или GitHub → Keys → Create key, скопируйте и вставьте сюда. Бесплатных запросов — около 50 в день.
+          Ключ хранится только на этом устройстве, фото и список продуктов уходят напрямую в нейросеть.
         </Text>
         <TextInput
           style={styles.input}
-          placeholder="sk-ant-…"
+          placeholder="sk-or-…"
           placeholderTextColor={colors.muted}
           value={key}
           onChangeText={setKey}
@@ -76,9 +75,39 @@ export default function SettingsScreen() {
           autoCorrect={false}
         />
         <Button label={apiKey && key.trim() === apiKey ? 'Ключ сохранён ✓' : 'Сохранить ключ'} onPress={onSaveKey} disabled={key.trim() === apiKey} primary />
-        <Pressable onPress={() => Linking.openURL('https://console.anthropic.com/settings/keys')}>
-          <Text style={styles.link}>Где взять ключ: console.anthropic.com →</Text>
+        <Pressable onPress={() => Linking.openURL('https://openrouter.ai/settings/keys')}>
+          <Text style={styles.link}>Получить ключ на openrouter.ai →</Text>
         </Pressable>
+        <Pressable onPress={() => setAdvanced((v) => !v)}>
+          <Text style={styles.link}>{advanced ? 'Скрыть' : 'Для продвинутых: другой API или модель'}</Text>
+        </Pressable>
+        {advanced && (
+          <>
+            <Text style={styles.label}>Адрес OpenAI-совместимого API</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.aiBaseUrl}
+              onChangeText={(v) => updateSettings({ aiBaseUrl: v.trim() })}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.label}>Модель</Text>
+            <TextInput
+              style={styles.input}
+              value={settings.aiModel}
+              onChangeText={(v) => updateSettings({ aiModel: v.trim() })}
+              placeholder={AUTO_MODEL}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.hint}>
+              «auto» — приложение само выберет бесплатную модель OpenRouter (для фото — ту, что понимает картинки). Можно
+              указать свою, например google/gemma-3-27b-it:free.
+            </Text>
+            <Button label="Сбросить на OpenRouter" onPress={() => updateSettings({ aiBaseUrl: DEFAULT_AI.baseUrl, aiModel: DEFAULT_AI.model })} />
+          </>
+        )}
       </View>
 
       <View style={card}>

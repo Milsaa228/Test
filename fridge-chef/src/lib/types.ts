@@ -66,4 +66,7 @@ export interface Settings {
   servings: number;
   /** Утреннее напоминание о продуктах, которые истекают завтра. */
   notifications: boolean;
+  /** OpenAI-совместимый API и модель (ключ хранится отдельно, в защищённом хранилище). */
+  aiBaseUrl: string;
+  aiModel: string;
 }

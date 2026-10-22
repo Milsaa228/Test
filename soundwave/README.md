@@ -25,8 +25,16 @@ npx expo lint           # линтер
 npm test                # тесты логики: очередь, повтор/перемешивание, библиотека, поиск
 ```
 
-Фоновое воспроизведение и экран блокировки полноценно работают в сборке приложения, а не в Expo Go:
-`npx eas-cli@latest build -p android --profile preview` (или `-p ios`).
+Фоновое воспроизведение и экран блокировки полноценно работают в сборке приложения, а не в Expo Go.
+
+## APK для Android
+
+APK собирает GitHub Actions (`.github/workflows/soundwave-apk.yml`) при каждом пуше с изменениями в `soundwave/`, а также вручную
+(Actions → «soundwave APK» → Run workflow). Готовый файл появляется в разделе **Releases** репозитория (`soundwave-build-<номер>`)
+и в артефактах запуска. Сборка подписана debug-ключом: её можно ставить на телефон напрямую, но для Google Play нужен свой ключ.
+
+Локально: `npx expo prebuild -p android && cd android && ./gradlew assembleRelease` (нужны Android SDK и JDK 17),
+или в облаке Expo: `npx eas-cli@latest build -p android --profile preview`.
 
 ## Структура
 

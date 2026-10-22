@@ -116,12 +116,15 @@ export function shuffleWith<T>(items: T[], rand: () => number): T[] {
 }
 
 /** Переставляет треки так, чтобы один исполнитель не шёл подряд, если есть выбор. */
+/** Исполнитель для сравнения: «AYANKOKO» и «ayankoko» — один и тот же. */
+export const artistKey = (artist: string) => artist.toLowerCase().replace(/\s+/g, ' ').trim();
+
 export function spreadArtists(tracks: Track[]): Track[] {
   const rest = [...tracks];
   const out: Track[] = [];
   while (rest.length) {
-    const prev = out[out.length - 1]?.artist;
-    const i = rest.findIndex((t) => t.artist !== prev);
+    const prev = out.length ? artistKey(out[out.length - 1].artist) : undefined;
+    const i = rest.findIndex((t) => artistKey(t.artist) !== prev);
     out.push(rest.splice(i < 0 ? 0 : i, 1)[0]);
   }
   return out;
@@ -142,9 +145,10 @@ export function assembleMix(candidates: Track[], o: AssembleOptions): Track[] {
   const take = (pool: Track[], limit: number, cap: number) => {
     for (const t of pool) {
       if (out.length >= limit) break;
-      if (out.includes(t) || (perArtistCount.get(t.artist) ?? 0) >= cap) continue;
+      const key = artistKey(t.artist);
+      if (out.includes(t) || (perArtistCount.get(key) ?? 0) >= cap) continue;
       out.push(t);
-      perArtistCount.set(t.artist, (perArtistCount.get(t.artist) ?? 0) + 1);
+      perArtistCount.set(key, (perArtistCount.get(key) ?? 0) + 1);
     }
   };
   take(preferred, o.size, perArtist);

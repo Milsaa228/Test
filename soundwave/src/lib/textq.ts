@@ -163,6 +163,28 @@ const RU_NAMES: Record<string, string[]> = {
   'ABBA': ['абба'],
   'Modern Talking': ['модерн токинг'],
   'Enigma': ['энигма'],
+  // Исполнители стартового экрана (свободная музыка в Internet Archive).
+  'Kevin MacLeod': ['кевин маклауд', 'кевин маклеод', 'кевин маклеуд'],
+  'Blue Dot Sessions': ['блю дот сешнс', 'блю дот сессионс'],
+  'Nine Inch Nails': ['найн инч нейлз', 'найн инч нэйлз', 'найн инч нейлс'],
+  'Grateful Dead': ['грейтфул дэд', 'грейтфул дед', 'грэйтфул дэд'],
+  'Josh Woodward': ['джош вудворд'],
+  'Jonathan Coulton': ['джонатан коултон', 'джонатан колтон'],
+  'Lee Rosevere': ['ли роузвир', 'ли розвир'],
+  'Chris Zabriskie': ['крис забриски'],
+  'Kai Engel': ['кай энгель', 'кай энгел'],
+  'Jahzzar': ['джаззар', 'джахзар'],
+  'Lobo Loco': ['лобо локо'],
+  'Komiku': ['комику'],
+  'ProleteR': ['пролетер', 'пролитер'],
+  'Boogie Belgique': ['буги бельжик', 'буги бельгик'],
+  'Chenard Walcker': ['шенар валкер', 'ченард уолкер'],
+  'Robert Kunin': ['роберт кунин'],
+  'Messian Dread': ['мессиан дред'],
+  'Revolution Void': ['революшн войд', 'революшен войд'],
+  'Broke For Free': ['броук фор фри', 'брок фор фри'],
+  'Loyalty Freak Music': ['лоялти фрик мьюзик'],
+  'Dee Yan-Key': ['ди ян ки', 'диянки'],
 };
 
 const DICT: { canon: string; key: string }[] = Object.entries(RU_NAMES).flatMap(([canon, list]) => list.map((v) => ({ canon, key: normalize(v) })));

@@ -329,6 +329,10 @@ test('assembleMix: avoids recent, drops disliked, caps per artist, spreads artis
   assert.ok(!mix.some((t) => t.id === 'recent1'), 'recent used only if nothing else');
   assert.equal(mix.filter((t) => t.artist === 'Same').length, 2);
   for (let i = 1; i < mix.length; i++) assert.notEqual(mix[i].artist, mix[i - 1].artist);
+  const cased = R.assembleMix([NT('a', { artist: 'AYANKOKO' }), NT('b', { artist: 'ayankoko' }), NT('c', { artist: 'Ayankoko ' }), NT('d', { artist: 'Other' })],
+    { size: 4, likedIds: new Set(), maxLikedShare: 0, perArtist: 1, rand: R.seededRandom('k') });
+  assert.equal(cased.filter((t) => /ayankoko/i.test(t.artist)).length, 2, 'artist names compared case-insensitively (cap relaxes to 2 when short)');
+  assert.notEqual(R.artistKey(cased[0].artist), R.artistKey(cased[1].artist));
 });
 
 // ---------- сборка миксов и волны с подменённым archive.org ----------
@@ -437,6 +441,8 @@ test('textq: layout swap, translit both ways, dictionary', () => {
   assert.equal(Q2.dictionaryName('имэджн драгонс'), 'Imagine Dragons', 'typo tolerated');
   assert.equal(Q2.dictionaryName('уикенд blinding lights'), 'The Weeknd', 'name at the start of a longer query');
   assert.equal(Q2.dictionaryName('кино'), null);
+  assert.equal(Q2.dictionaryName('найн инч нейлз'), 'Nine Inch Nails', 'found missing on the live check');
+  for (const a of G.ARTISTS) if (!/^(Mozart|Bach|Chopin|Beethoven|Tchaikovsky)$/.test(a.name)) assert.ok(Q2.queryVariants(a.name).length >= 1);
   assert.equal(Q2.dictionaryName('metallica'), null, 'latin queries are not looked up');
 });
 

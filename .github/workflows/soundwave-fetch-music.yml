@@ -49,26 +49,26 @@ jobs:
           LIST
           echo '[' > manifest.json
           n=0
-          while IFS='|' read -r title genre; do
+          while IFS='|' read -r -u 3 title genre; do
             title="$(echo "$title" | sed 's/^ *//')"
             [ -z "$title" ] && continue
             [ "$n" -ge 12 ] && break
             enc="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$title")"
             url="https://incompetech.com/music/royalty-free/mp3-royaltyfree/${enc}.mp3"
             slug="$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')"
-            if ! curl -fsSL --retry 3 -A 'Mozilla/5.0' -o "/tmp/$slug.mp3" "$url"; then
+            if ! curl -fsSL --retry 3 </dev/null -A 'Mozilla/5.0' -o "/tmp/$slug.mp3" "$url"; then
               echo "::warning::failed $title ($url)"; continue
             fi
             if ! ffprobe -v error -show_entries format=duration -of csv=p=0 "/tmp/$slug.mp3" >/dev/null 2>&1; then
               echo "::warning::not audio $title"; head -c 300 "/tmp/$slug.mp3"; continue
             fi
-            ffmpeg -v error -y -i "/tmp/$slug.mp3" -map_metadata -1 -ac 2 -b:a 96k "$slug.mp3"
+            ffmpeg -nostdin -v error -y -i "/tmp/$slug.mp3" -map_metadata -1 -ac 2 -b:a 96k "$slug.mp3"
             dur="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$slug.mp3")"
             [ "$n" -gt 0 ] && echo ',' >> manifest.json
             python3 -c 'import json,sys;print(json.dumps({"file":sys.argv[1]+".mp3","title":sys.argv[2],"genre":sys.argv[3],"duration":round(float(sys.argv[4])),"source":sys.argv[5]},ensure_ascii=False))' "$slug" "$title" "$genre" "$dur" "$url" >> manifest.json
             echo "ok $title -> $slug.mp3 ${dur}s $(du -h "$slug.mp3" | cut -f1)"
             n=$((n+1))
-          done < /tmp/list.txt
+          done 3< /tmp/list.txt
           echo ']' >> manifest.json
           python3 -m json.tool manifest.json > /dev/null
           cat manifest.json

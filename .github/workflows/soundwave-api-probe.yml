@@ -1,4 +1,4 @@
-# Разовая разведка: Subsonic API на демо-сервере Navidrome для soundwave.
+# Разовая разведка: Subsonic API настоящего Navidrome (в Docker на раннере) для soundwave.
 name: soundwave api probe
 
 on:
@@ -10,62 +10,72 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Navidrome demo
+      - name: Demo server answer
+        run: curl -sS -m 20 -o /tmp/demo.txt -w '%{http_code} %{content_type}\n' "https://demo.navidrome.org/rest/ping?u=demo&p=demo&v=1.16.1&c=probe&f=json" || true; head -c 300 /tmp/demo.txt; echo
+      - name: Music (CC BY, Kevin MacLeod)
+        run: |
+          mkdir -p music/"Kevin MacLeod"/"Jazz Sampler"
+          cd music/"Kevin MacLeod"/"Jazz Sampler"
+          for t in "Bossa Antigua" "Night on the Docks - Sax" "Local Forecast - Elevator"; do
+            curl -fsSL -A Mozilla/5.0 -o "$t.mp3" "https://incompetech.com/music/royalty-free/mp3-royaltyfree/$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$t").mp3"
+          done
+          sudo apt-get install -y -qq id3v2 >/dev/null
+          n=1; for f in *.mp3; do id3v2 -a "Kevin MacLeod" -A "Jazz Sampler" -g "Jazz" -T $n -t "${f%.mp3}" "$f"; n=$((n+1)); done
+          ls -la
+      - name: Start Navidrome
+        run: |
+          docker run -d --name nd -p 4533:4533 -v "$PWD/music:/music:ro" -e ND_SCANSCHEDULE=1m -e ND_LOGLEVEL=info deluan/navidrome:latest
+          for i in $(seq 1 60); do curl -s localhost:4533/ping >/dev/null && break; sleep 1; done
+          curl -s -X POST localhost:4533/auth/createAdmin -H 'Content-Type: application/json' -d '{"username":"admin","password":"secret123"}' | head -c 200; echo
+          sleep 15
+          docker logs nd 2>&1 | tail -5
+      - name: Probe Subsonic API
         shell: python
         run: |
-          import hashlib, json, random, string, urllib.parse, urllib.request, urllib.error
-          BASE = 'https://demo.navidrome.org'
+          import hashlib, json, random, string, urllib.parse, urllib.request, urllib.error, time
+          BASE = 'http://localhost:4533'
           def auth():
               s = ''.join(random.choice(string.ascii_lowercase) for _ in range(8))
-              return {'u': 'demo', 't': hashlib.md5(('demo' + s).encode()).hexdigest(), 's': s, 'v': '1.16.1', 'c': 'soundwave', 'f': 'json'}
+              return {'u': 'admin', 't': hashlib.md5(('secret123' + s).encode()).hexdigest(), 's': s, 'v': '1.16.1', 'c': 'soundwave', 'f': 'json'}
           def call(method, **params):
               url = f'{BASE}/rest/{method}?' + urllib.parse.urlencode({**auth(), **params})
               req = urllib.request.Request(url, headers={'Origin': 'http://localhost:8081'})
               try:
                   with urllib.request.urlopen(req, timeout=30) as r:
-                      body = r.read()
-                      return r.status, dict(r.headers), body
+                      return r.status, dict(r.headers), r.read()
               except urllib.error.HTTPError as e:
                   return e.code, dict(e.headers), e.read()
           def j(method, **p):
               st, h, b = call(method, **p)
-              d = json.loads(b)['subsonic-response']
-              return st, h, d
+              return st, h, json.loads(b)['subsonic-response']
           st, h, d = j('ping')
           print('PING', st, 'CORS', h.get('Access-Control-Allow-Origin'), json.dumps(d))
-          st, h, d = j('getOpenSubsonicExtensions')
-          print('EXT', json.dumps(d)[:600])
-          st, h, d = j('getGenres')
-          g = d.get('genres', {}).get('genre', [])
-          print('GENRES', len(g), [(x.get('value'), x.get('songCount')) for x in g[:30]])
+          for _ in range(20):
+              st, h, d = j('getScanStatus'); print('SCAN', d.get('scanStatus'))
+              if not d['scanStatus'].get('scanning') and d['scanStatus'].get('count', 0) > 0: break
+              j('startScan'); time.sleep(3)
+          st, h, d = j('getOpenSubsonicExtensions'); print('EXT', json.dumps(d)[:400])
+          st, h, d = j('getGenres'); print('GENRES', json.dumps(d)[:300])
           st, h, d = j('getArtists')
-          idx = d.get('artists', {}).get('index', [])
-          arts = [a for i in idx for a in i.get('artist', [])]
-          print('ARTISTS', len(arts), json.dumps(arts[:3])[:900])
-          a = max(arts, key=lambda x: x.get('albumCount', 0))
-          st, h, d = j('getArtistInfo2', id=a['id'], count=5)
-          print('ARTISTINFO2', a['name'], json.dumps(d)[:900])
-          st, h, d = j('getArtist', id=a['id'])
-          albums = d.get('artist', {}).get('album', [])
-          print('ARTIST albums', len(albums), json.dumps(albums[:1])[:600])
-          st, h, d = j('getAlbum', id=albums[0]['id'])
-          songs = d.get('album', {}).get('song', [])
-          print('ALBUM songs', len(songs), json.dumps(songs[:1])[:1200])
+          arts = [a for i in d['artists'].get('index', []) for a in i.get('artist', [])]
+          print('ARTISTS', json.dumps(arts)[:700])
+          a = arts[0]
+          st, h, d = j('getArtistInfo2', id=a['id'], count=5); print('ARTISTINFO2', json.dumps(d)[:700])
+          st, h, d = j('getArtist', id=a['id']); albums = d['artist']['album']; print('ARTIST', json.dumps(albums)[:500])
+          st, h, d = j('getAlbum', id=albums[0]['id']); songs = d['album']['song']; print('SONG', json.dumps(songs[0])[:1200])
           sid = songs[0]['id']
-          for m, p in [('search3', {'query': a['name'][:4], 'artistCount': 3, 'albumCount': 3, 'songCount': 3}), ('getRandomSongs', {'size': 3}),
-                       ('getSongsByGenre', {'genre': g[0]['value'] if g else 'Rock', 'count': 3}), ('getSimilarSongs', {'id': sid, 'count': 5}),
+          for m, p in [('search3', {'query': 'bossa', 'artistCount': 3, 'albumCount': 3, 'songCount': 3}), ('search3', {'query': 'kevin', 'songCount': 2}), ('search3', {'query': '', 'songCount': 2}),
+                       ('getRandomSongs', {'size': 2}), ('getSongsByGenre', {'genre': 'Jazz', 'count': 2}), ('getSimilarSongs', {'id': sid, 'count': 5}),
                        ('getSimilarSongs2', {'id': a['id'], 'count': 5}), ('getTopSongs', {'artist': a['name'], 'count': 5}),
-                       ('getAlbumList2', {'type': 'random', 'size': 3}), ('getLyricsBySongId', {'id': sid}), ('getLyrics', {'artist': songs[0].get('artist',''), 'title': songs[0].get('title','')}),
-                       ('getStarred2', {}), ('getPlaylists', {})]:
+                       ('getAlbumList2', {'type': 'random', 'size': 2}), ('getLyricsBySongId', {'id': sid}), ('star', {'id': sid}), ('getStarred2', {}),
+                       ('scrobble', {'id': sid, 'submission': 'true'}), ('getPlaylists', {})]:
               st, h, d = j(m, **p)
-              print('CALL', m, st, json.dumps(d, ensure_ascii=False)[:500])
-          st, h, b = call('stream', id=sid)
-          print('STREAM', st, h.get('Content-Type'), h.get('Content-Length'), len(b))
-          st, h, b = call('getCoverArt', id=albums[0].get('coverArt', albums[0]['id']), size=300)
-          print('COVER', st, h.get('Content-Type'), len(b))
-          st, h, b = call('getCoverArt', id='ar-' + a['id'], size=300)
-          print('ARTIST COVER', st, h.get('Content-Type'), len(b))
-          st, h, b = call('download', id=sid)
-          print('DOWNLOAD', st, h.get('Content-Type'), len(b))
+              print('CALL', m, json.dumps(p)[:60], st, json.dumps(d, ensure_ascii=False)[:450])
+          for m, p in [('stream', {'id': sid}), ('stream', {'id': sid, 'format': 'mp3', 'maxBitRate': 128}), ('download', {'id': sid}), ('getCoverArt', {'id': albums[0].get('coverArt', ''), 'size': 300}), ('getCoverArt', {'id': 'ar-' + a['id'], 'size': 300})]:
+              st, h, b = call(m, **p)
+              print('BIN', m, json.dumps(p)[:60], st, h.get('Content-Type'), len(b), 'CORS', h.get('Access-Control-Allow-Origin'))
+          # Неверный пароль
+          url = f'{BASE}/rest/ping?u=admin&p=wrong&v=1.16.1&c=x&f=json'
+          print('BADAUTH', urllib.request.urlopen(url).read()[:300])

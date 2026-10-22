@@ -1,6 +1,6 @@
 # Technocracy — технологическая сборка для Minecraft 1.20.1
 
-Большая техно-сборка на **Forge 1.20.1** (~60 основных модов, около 100 вместе с библиотеками). Путь игрока идёт от водяных колёс и шестерёнок Create до термоядерного синтеза, ME-сетей, полётов на Марс и Драконьего реактора.
+Большая техно-сборка на **Forge 1.20.1**: 116 основных модов, примерно 170 вместе с библиотеками. Путь игрока идёт от водяных колёс и шестерёнок Create до термоядерного синтеза, ME-сетей, полётов на Марс и Драконьего реактора.
 
 Моды не разрознены: скрипты KubeJS связывают ключевые рецепты, и каждый следующий век опирается на предыдущий.
 
@@ -27,14 +27,24 @@ Almost Unified сводит одинаковые слитки, пыль и ру�
 
 Полный список с категориями лежит в [`mods.list`](mods.list). Кратко:
 
-- **Механика:** Create и 8 аддонов.
-- **Индустрия:** Thermal (6 модулей), Immersive Engineering и Petroleum, Industrial Foregoing, PneumaticCraft, Ender IO.
-- **Атом и энергия:** Mekanism (4 модуля), Extreme Reactors, Powah, Flux Networks.
-- **Логистика:** AE2 с беспроводными терминалами и Applied Mekanistics, Integrated Dynamics (4 модуля), LaserIO, Modular Routers, Pipez, Functional и Sophisticated Storage.
+- **Механика:** Create и 16 аддонов (поезда, дизельные двигатели, бурение жил, артиллерия, автозачарование, чанклоадеры для поездов).
+- **Индустрия:** Thermal (7 модулей), Immersive Engineering и Petroleum, Industrial Foregoing, PneumaticCraft, Ender IO.
+- **Атом и энергия:** Mekanism (5 модулей вместе с Mekanism Extras), Extreme Reactors, NuclearCraft Neoteric, Powah, Solar Flux, Flux Networks.
+- **Хранилища:** AE2 с ExtendedAE, MEGA Cells, ME Requester, беспроводными терминалами и Applied Mekanistics; Functional и Sophisticated Storage, Ender Storage.
+- **Логистика:** Integrated Dynamics (4 модуля), XNet, Super Factory Manager, LaserIO, Modular Routers, Pipez.
+- **RFTools:** строитель и квари, телепорты, энергия, программируемые процессоры.
 - **Компьютеры:** CC: Tweaked, Advanced Peripherals.
-- **Космос и эндгейм:** Ad Astra, Draconic Evolution.
-- **Удобство:** JEI, Jade, карты Xaero, Waystones, FTB Chunks/Teams/Ultimine, Mining и Building Gadgets.
-- **Производительность:** Embeddium, ModernFix, FerriteCore, EntityCulling, ImmediatelyFast, spark.
+- **Автоматизация ресурсов:** Mystical Agriculture и Agradditions, Productive Bees, Botany Pots, Hostile Neural Networks.
+- **Транспорт:** Valkyrien Skies с Eureka (корабли из блоков), Immersive Aircraft, Iron Jetpacks.
+- **Космос и эндгейм:** Ad Astra, Draconic Evolution, Extended Crafting.
+- **Удобство:** JEI с JER, Jade, Polymorph, карты Xaero, Waystones, Corpse, Torchmaster, FTB Chunks/Teams/Ultimine, автобэкапы.
+- **Производительность:** Embeddium, Oculus (шейдеры), ModernFix, FerriteCore, Canary, EntityCulling, ImmediatelyFast, spark.
+
+### Проверка модов
+
+Slug каждого мода сверены с CurseForge, и для каждого подтверждено, что есть версия под Forge 1.20.1. Исключение — два мода, помеченные в `mods.list` знаком «?»: Mining Gadgets и Mob Grinding Utils. Для них явного подтверждения не нашлось; если версии нет, `install-mods.sh` сообщит об этом в конце.
+
+Совместимость модов друг с другом в запуске не проверялась. Больше всего рисков в связке Valkyrien Skies + Create и в аддонах Create: им нужна версия под Create 6. Если игра падает при запуске, сначала уберите эти моды командой `packwiz remove <slug>`.
 
 ## Сборка
 

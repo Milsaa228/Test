@@ -2,13 +2,18 @@
 # Формат строки: <источник> <slug> [# комментарий]
 #   источник: curseforge | modrinth
 # Зависимости (библиотеки) packwiz подтягивает сам.
+# Все slug проверены по CurseForge (октябрь 2026). Помечены «?» моды,
+# для которых не нашлось явного подтверждения сборки Forge 1.20.1.
 
 # ─── Ядро и интеграция ─────────────────────────────────────────────
 curseforge jei                          # рецепты
+curseforge just-enough-resources-jer    # где генерируются руды, что дропается
 curseforge jade                         # подсказки при наведении
+curseforge jade-addons                  # дополнительные данные в Jade
 curseforge kubejs                       # скрипты сборки (кастомные рецепты)
 curseforge kubejs-create                # рецепты Create из KubeJS
-curseforge almost-unified               # унификация руд/слитков разных модов
+curseforge almostunified                # унификация руд/слитков разных модов
+curseforge polymorph                    # выбор результата при конфликте рецептов
 curseforge patchouli                    # книги-руководства
 
 # ─── Эпоха пара: Create ────────────────────────────────────────────
@@ -16,11 +21,19 @@ curseforge create
 curseforge create-steam-n-rails         # поезда, семафоры, широкая колея
 curseforge createaddition               # Crafts & Additions: электричество FE <-> SU
 curseforge create-new-age               # генераторы, реакторы для Create
+curseforge create-diesel-generators     # дизельные двигатели
 curseforge create-enchantment-industry  # автоматическое зачарование
 curseforge create-big-cannons           # артиллерия
-curseforge create-deco                  # индустриальный декор
+curseforge create-ore-excavation        # бурение рудных жил
+curseforge create-mechanical-extruder   # генерация булыжника и руд экструдером
+curseforge create-power-loader          # чанклоадеры для поездов и контрапций
+curseforge slice-and-dice               # автоматическая готовка
+curseforge create-stuff-additions       # ранцы, гаджеты
 curseforge create-jetpack               # реактивный ранец на воздухе
+curseforge create-encased               # валы и шестерни в корпусах
 curseforge create-connected             # мелкие полезные блоки
+curseforge copycats                     # Copycats+: блоки-имитаторы
+curseforge create-deco                  # индустриальный декор
 
 # ─── Электричество и тяжёлая промышленность ────────────────────────
 curseforge immersive-engineering
@@ -31,66 +44,109 @@ curseforge thermal-dynamics
 curseforge thermal-innovation
 curseforge thermal-integration
 curseforge thermal-cultivation
+curseforge thermal-locomotion           # вагонетки Thermal
 curseforge industrial-foregoing         # фермы, мобы, лазерный бур
 curseforge pneumaticcraft-repressurized # пневматика, дроны, программирование
 curseforge ender-io                     # кондуиты, SAG-мельница, сплавы
+curseforge iron-furnaces                # улучшенные печи
 
-# ─── Атомный век: Mekanism ─────────────────────────────────────────
+# ─── Атомный век ───────────────────────────────────────────────────
 curseforge mekanism
 curseforge mekanism-generators          # термоядерный и делящийся реакторы
 curseforge mekanism-additions
 curseforge mekanism-tools
+curseforge mekanism-extras              # машины и накопители выше элитного уровня
 curseforge extreme-reactors             # многоблочные реакторы и турбины
+curseforge nuclearcraft-neoteric        # ядерная физика, ускорители частиц
 
 # ─── Энергия ───────────────────────────────────────────────────────
 curseforge powah-rearchitected          # реакторы, термо-генераторы, энергетические шары
+curseforge solar-flux-reborn            # солнечные панели
 curseforge flux-networks                # беспроводная энергия
 
-# ─── Хранилища и логистика ─────────────────────────────────────────
+# ─── Цифровые хранилища ────────────────────────────────────────────
 curseforge applied-energistics-2
 curseforge ae2wtlib                     # беспроводные терминалы
 curseforge applied-mekanistics          # газы Mekanism в ME-сети
+curseforge ex-pattern-provider          # ExtendedAE: расширенные блоки AE2
+curseforge mega-cells                   # ячейки хранения большой ёмкости
+curseforge merequester                  # поддержание запасов автокрафтом
+
+# ─── Логистика ─────────────────────────────────────────────────────
 curseforge integrated-dynamics          # логические сети
 curseforge integrated-terminals
 curseforge integrated-tunnels
 curseforge integrated-crafting
+curseforge xnet                         # кабельная логистика с каналами
+curseforge super-factory-manager        # программируемое управление фабрикой
 curseforge pipez                        # простые трубы
 curseforge modular-routers
 curseforge laserio                      # лазерная логистика
+curseforge ender-storage-1-8            # сундуки и баки с общим доступом по цвету
 curseforge functional-storage           # ящики
 curseforge sophisticated-storage
 curseforge sophisticated-backpacks
+
+# ─── RFTools ───────────────────────────────────────────────────────
+curseforge rftools-builder              # строитель и квари
+curseforge rftools-utility              # телепорты, экраны
+curseforge rftools-power                # энергоячейки и генераторы
+curseforge rftools-control              # программируемые процессоры
 
 # ─── Компьютеры ────────────────────────────────────────────────────
 curseforge cc-tweaked                   # программируемые компьютеры на Lua
 curseforge advanced-peripherals         # связка CC с AE2, Mekanism и др.
 
-# ─── Ресурсы и автоматизация ресурсов ──────────────────────────────
+# ─── Автоматизация ресурсов ────────────────────────────────────────
 curseforge mystical-agriculture         # выращивание ресурсов
-curseforge mining-gadgets
+curseforge mystical-agradditions        # высшие уровни семян
+curseforge botany-pots                  # автоматические горшки-фермы
+curseforge productivebees               # пчёлы, которые производят ресурсы
+curseforge hostile-neural-networks      # симуляция мобов для получения дропа
+curseforge mob-grinding-utils           # ? фермы мобов
+curseforge mining-gadgets               # ? лазерная кирка
 curseforge building-gadgets
 curseforge ftb-ultimine-forge           # вскапывание жилы целиком
+
+# ─── Транспорт ─────────────────────────────────────────────────────
+curseforge valkyrien-skies              # физика: летающие корабли из блоков
+curseforge eureka-ships                 # штурвал и баллоны для кораблей VS
+curseforge immersive-aircraft           # самолёты, дирижабли, гироскопы
+curseforge iron-jetpacks                # реактивные ранцы
 
 # ─── Космос и эндгейм ──────────────────────────────────────────────
 curseforge ad-astra                     # ракеты, Луна, Марс, Венера, Меркурий, Гленио
 curseforge draconic-evolution           # эндгейм: Драконий реактор
+curseforge extended-crafting            # большие верстаки для финальных рецептов
 
 # ─── Мир, карта, мультиплеер ───────────────────────────────────────
 curseforge xaeros-minimap
 curseforge xaeros-world-map
 curseforge waystones
+curseforge torchmaster                  # мегафакел против спавна мобов на базе
+curseforge corpse                       # вещи остаются в трупе после смерти
 curseforge ftb-chunks-forge             # приват и прогрузка чанков
 curseforge ftb-teams-forge
+curseforge simple-backups               # автоматические бэкапы мира
 
 # ─── Удобство ──────────────────────────────────────────────────────
 curseforge mouse-tweaks
+curseforge inventory-profiles-next      # сортировка инвентаря
 curseforge controlling
+curseforge configured                   # настройка модов из меню
+curseforge catalogue                    # удобный список модов
 curseforge appleskin
 
-# ─── Производительность (такая сборка без них тормозит) ────────────
+# ─── Производительность ────────────────────────────────────────────
 curseforge embeddium
+curseforge oculus                       # шейдеры
 curseforge ferritecore
 curseforge modernfix
+curseforge canary                       # оптимизация серверной логики
+curseforge ai-improvements
+curseforge clumps                       # объединение сфер опыта
+curseforge fastworkbench
+curseforge fastfurnace
 curseforge entityculling
 curseforge immediatelyfast
 curseforge spark                        # профилировщик для поиска лагов

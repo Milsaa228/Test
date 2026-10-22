@@ -1,4 +1,4 @@
-# Разовая разведка: что zaycev.net разрешает сторонним приложениям (соглашение, правообладатели, API).
+# Разовая разведка: официальный API и виджет SoundCloud для soundwave.
 name: soundwave api probe
 
 on:
@@ -12,41 +12,46 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Fetch zaycev.net pages
+      - name: SoundCloud
         shell: python
         run: |
-          import re, html, urllib.request
-          UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36'
-          def get(url):
-              req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept-Language': 'ru'})
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  return r.status, r.geturl(), r.read().decode('utf-8', 'replace')
+          import re, html, json, urllib.request, urllib.parse, urllib.error
+          UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36'
+          def get(url, headers=None):
+              req = urllib.request.Request(url, headers={'User-Agent': UA, **(headers or {})})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return r.status, dict(r.headers), r.read().decode('utf-8', 'replace')
+              except urllib.error.HTTPError as e:
+                  return e.code, dict(e.headers), e.read().decode('utf-8', 'replace')
           def text(h):
               h = re.sub(r'(?is)<(script|style|svg)[^>]*>.*?</\1>', ' ', h)
               h = re.sub(r'(?s)<[^>]+>', '\n', h)
-              t = html.unescape(h)
-              return re.sub(r'\n\s*\n+', '\n', re.sub(r'[ \t]+', ' ', t)).strip()
-          try:
-              st, url, home = get('https://zaycev.net/')
-          except Exception as e:
-              print('HOME ERROR', e); raise SystemExit(0)
-          print('HOME', st, url, len(home))
-          links = sorted(set(re.findall(r'href="(/[^"#?]*(?:agree|rule|term|polic|legal|right|pravo|about|api|partner|dev|widget|licen|pages)[^"#?]*)"', home, re.I)))
-          print('FOOTER LINKS', links)
-          print('HOME TEXT', text(home)[:1500])
-          cand = links + ['/pages/agreement', '/pages/rightholders', '/pages/about', '/agreement', '/rightholders', '/legal']
-          seen = set()
-          for path in cand:
-              if path in seen: continue
-              seen.add(path)
-              try:
-                  st, url, h = get('https://zaycev.net' + path)
-                  t = text(h)
-                  print(f'\n===== {path} -> {st} {url} ({len(t)} chars)')
-                  # Ключевые места соглашения
-                  for kw in ['API', 'сторонн', 'программ', 'автоматизир', 'скачив', 'копирова', 'некоммерч', 'личн', 'лиценз', 'правообладател', 'договор', 'воспроизвед', 'реклам', 'парсинг', 'робот']:
-                      for m in re.finditer(kw, t, re.I):
-                          s = max(0, m.start() - 200); print(f'[{kw}] …{t[s:m.end()+300]}…'.replace('\n', ' '))
-                          break
-              except Exception as e:
-                  print(f'\n===== {path} ERROR {e}')
+              return re.sub(r'\n\s*\n+', '\n', re.sub(r'[ \t]+', ' ', html.unescape(h))).strip()
+          def grep(t, kws, width=350):
+              for kw in kws:
+                  hits = [m.start() for m in re.finditer(kw, t, re.I)][:3]
+                  for s in hits:
+                      print(f'  [{kw}] …{t[max(0,s-150):s+width]}…'.replace('\n', ' '))
+          pages = {
+            'guide': 'https://developers.soundcloud.com/docs/api/guide',
+            'terms': 'https://developers.soundcloud.com/docs/api/terms-of-use',
+            'widget': 'https://developers.soundcloud.com/docs/api/html5-widget',
+            'docs': 'https://developers.soundcloud.com/docs',
+            'blog': 'https://developers.soundcloud.com/blog',
+          }
+          for name, url in pages.items():
+              st, h, b = get(url)
+              t = text(b)
+              print(f'\n===== {name} {st} {len(t)} chars')
+              print(t[:600].replace('\n', ' | '))
+              grep(t, ['register', 'client_id', 'client credentials', 'streams', 'hls', 'progressive', 'aac', 'offline', 'cache', 'download', 'background', 'attribut', 'rate limit', 'monetiz', 'advertis', 'unofficial', 'api-v2', 'scrap', 'form', 'approv', 'widget'])
+          # Без ключей
+          st, h, b = get('https://api.soundcloud.com/tracks?q=metallica&limit=1')
+          print('\nAPI no creds', st, b[:300])
+          st, h, b = get('https://soundcloud.com/oembed?format=json&url=' + urllib.parse.quote('https://soundcloud.com/metallica'))
+          print('OEMBED', st, b[:500])
+          st, h, b = get('https://w.soundcloud.com/player/?url=' + urllib.parse.quote('https://soundcloud.com/metallica'))
+          print('WIDGET page', st, len(b))
+          st, h, b = get('https://soundcloud.com/you/apps')
+          print('APPS page', st, text(b)[:400].replace('\n',' | '))

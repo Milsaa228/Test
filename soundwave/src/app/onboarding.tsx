@@ -1,37 +1,87 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ArtistAvatar } from '../components/ArtistAvatar';
 import { Icon } from '../components/Icon';
 import { colors } from '../components/theme';
 import { useLibrary } from '../context/LibraryContext';
+import { creatorSearchQuery, queryArchive, shortCreator } from '../lib/archive';
 import { ARTISTS, GENRES, genreById } from '../lib/genres';
+import { matchScore, normalize, queryVariants } from '../lib/textq';
+
+type ArtistOption = { name: string; genre?: string };
+
+/** Исполнители из архива по запросу (поле creator, с вариантами написания), без «Various Artists». */
+async function searchCreators(text: string): Promise<ArtistOption[]> {
+  const items = await queryArchive(creatorSearchQuery(text), { rows: 50 });
+  const variants = queryVariants(text);
+  const seen = new Map<string, { name: string; score: number; n: number }>();
+  for (const it of items) {
+    const name = shortCreator(it.creator).replace(/ и др\.$/, '');
+    const key = normalize(name);
+    if (!key || /^(various|va|v a|unknown|неизвестный)/.test(key)) continue;
+    const prev = seen.get(key);
+    seen.set(key, { name, score: matchScore(name, variants), n: (prev?.n ?? 0) + 1 });
+  }
+  return [...seen.values()].sort((a, b) => b.score - a.score || b.n - a.n).slice(0, 18).map(({ name }) => ({ name }));
+}
 
 /** Первый запуск (и «Изменить предпочтения» в настройках): жанры и/или исполнители для рекомендаций. */
 export default function Onboarding() {
   const insets = useSafeAreaInsets();
   const { edit } = useLocalSearchParams<{ edit?: string }>();
-  const { state, dispatch } = useLibrary();
+  const { state, dispatch, offline } = useLibrary();
   const [tab, setTab] = useState<'genres' | 'artists'>('genres');
   const [genres, setGenres] = useState<string[]>(state.prefs.genres);
   const [artists, setArtists] = useState<string[]>(state.prefs.artists);
-  const [custom, setCustom] = useState('');
+  const [query, setQuery] = useState('');
+  const [found, setFound] = useState<{ q: string; list: ArtistOption[] } | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const toggle = (list: string[], set: (v: string[]) => void, v: string) => set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const count = genres.length + artists.length;
-  const extraArtists = artists.filter((a) => !ARTISTS.some((x) => x.name === a));
+  const q = query.trim();
+
+  // Поиск исполнителя: сначала по нашему списку (с транслитом), затем по архиву — с задержкой.
+  const localMatches = useMemo(() => {
+    if (!q) return [];
+    const variants = queryVariants(q);
+    return ARTISTS.filter((a) => matchScore(a.name, variants) >= 0.5);
+  }, [q]);
+
+  useEffect(() => {
+    if (q.length < 2 || offline) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      setSearching(true);
+      searchCreators(q)
+        .then((list) => alive && setFound({ q, list }))
+        .catch(() => alive && setFound({ q, list: [] }))
+        .finally(() => alive && setSearching(false));
+    }, 500);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [q, offline]);
+
+  const shown: ArtistOption[] = useMemo(() => {
+    if (!q) {
+      const extra = artists.filter((a) => !ARTISTS.some((x) => x.name === a)).map((name) => ({ name }));
+      return [...extra, ...ARTISTS];
+    }
+    const remote = found?.q === q ? found.list : [];
+    const out: ArtistOption[] = [...localMatches];
+    for (const r of remote) if (!out.some((x) => normalize(x.name) === normalize(r.name))) out.push(r);
+    return out;
+  }, [q, found, localMatches, artists]);
 
   const finish = (g: string[], a: string[]) => {
     dispatch({ type: 'setPrefs', genres: g, artists: a });
     if (edit && router.canGoBack()) router.back();
     else router.replace('/');
-  };
-
-  const addCustom = () => {
-    const name = custom.trim();
-    if (name && !artists.includes(name)) setArtists([...artists, name]);
-    setCustom('');
   };
 
   return (
@@ -59,8 +109,8 @@ export default function Onboarding() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-        {tab === 'genres' ? (
+      {tab === 'genres' ? (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
           <View style={styles.grid}>
             {GENRES.map((g) => {
               const on = genres.includes(g.id);
@@ -82,45 +132,66 @@ export default function Onboarding() {
               );
             })}
           </View>
-        ) : (
-          <>
-            <View style={styles.addRow}>
-              <TextInput
-                value={custom}
-                onChangeText={setCustom}
-                onSubmitEditing={addCustom}
-                placeholder="Добавить своего исполнителя"
-                placeholderTextColor={colors.faint}
-                style={styles.input}
-                selectionColor={colors.accent}
-                returnKeyType="done"
-                autoCorrect={false}
-              />
-              <Pressable onPress={addCustom} style={styles.addBtn} accessibilityLabel="Добавить">
-                <Icon name="plus" size={22} color={colors.accentText} />
+        </ScrollView>
+      ) : (
+        <>
+          <View style={styles.searchRow}>
+            <Icon name="search" size={20} color={colors.muted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Найти исполнителя (можно по-русски)"
+              placeholderTextColor={colors.faint}
+              style={styles.input}
+              selectionColor={colors.accent}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {searching ? <ActivityIndicator color={colors.accent} /> : null}
+            {q.length > 0 && !searching && (
+              <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Очистить">
+                <Icon name="close" size={18} color={colors.muted} />
               </Pressable>
+            )}
+          </View>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+            <View style={styles.artists}>
+              {shown.map((a) => (
+                <ArtistAvatar
+                  key={a.name}
+                  name={a.name}
+                  size={92}
+                  showName
+                  subtitle={a.genre ? genreById(a.genre)?.name : undefined}
+                  selected={artists.includes(a.name)}
+                  onPress={() => toggle(artists, setArtists, a.name)}
+                />
+              ))}
             </View>
-            <View style={styles.chips}>
-              {[...extraArtists.map((name) => ({ name, genre: '' })), ...ARTISTS].map((a) => {
-                const on = artists.includes(a.name);
-                return (
-                  <Pressable
-                    key={a.name}
-                    onPress={() => toggle(artists, setArtists, a.name)}
-                    style={[styles.chip, on && styles.chipOn]}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: on }}
-                  >
-                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{a.name}</Text>
-                    {a.genre ? <Text style={[styles.chipSub, on && styles.chipTextOn]}>{genreById(a.genre)?.name}</Text> : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={styles.note}>Здесь музыка со свободными лицензиями из Internet Archive. Популярных коммерческих артистов там обычно нет.</Text>
-          </>
-        )}
-      </ScrollView>
+            {q && !searching && shown.length === 0 && (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>Не нашли «{q}» среди свободной музыки.</Text>
+                <Pressable
+                  style={styles.addAnyway}
+                  onPress={() => {
+                    if (!artists.includes(q)) setArtists([...artists, q]);
+                    setQuery('');
+                  }}
+                >
+                  <Text style={styles.addAnywayText}>Всё равно добавить «{q}»</Text>
+                </Pressable>
+              </View>
+            )}
+            {q && shown.length > 0 && !artists.includes(q) && !shown.some((a) => normalize(a.name) === normalize(q)) && (
+              <Pressable style={styles.addLink} onPress={() => setArtists([...artists, q])}>
+                <Icon name="plus" size={18} color={colors.accent} />
+                <Text style={styles.addLinkText}>Добавить «{q}» как есть</Text>
+              </Pressable>
+            )}
+            <Text style={styles.note}>Фото — из открытого каталога Deezer. Музыка — свободная, из Internet Archive: популярных коммерческих артистов там обычно нет.</Text>
+          </ScrollView>
+        </>
+      )}
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <Pressable onPress={() => finish(genres, artists)} disabled={!count} style={[styles.done, !count && { opacity: 0.4 }]}>
@@ -143,20 +214,20 @@ const styles = StyleSheet.create({
   tabText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   tabTextOn: { color: colors.bg },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  genre: { flexBasis: '47%', flexGrow: 1, height: 84, borderRadius: 10, padding: 12, borderWidth: 3, borderColor: 'transparent' },
+  genre: { flexBasis: '30%', flexGrow: 1, height: 74, borderRadius: 10, padding: 10, borderWidth: 3, borderColor: 'transparent' },
   genreOn: { borderColor: colors.accent },
-  genreText: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  check: { position: 'absolute', right: 8, bottom: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  addRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  input: { flex: 1, color: colors.text, fontSize: 15, backgroundColor: colors.card, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
-  addBtn: { width: 44, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.faint },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { color: colors.text, fontSize: 14, fontWeight: '600' },
-  chipSub: { color: colors.muted, fontSize: 11, marginTop: 1 },
-  chipTextOn: { color: colors.accentText },
-  note: { color: colors.faint, fontSize: 12, marginTop: 16, lineHeight: 17 },
+  genreText: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  check: { position: 'absolute', right: 6, bottom: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.card, borderRadius: 10, marginHorizontal: 16, marginBottom: 14, paddingHorizontal: 12 },
+  input: { flex: 1, color: colors.text, fontSize: 15, paddingVertical: 11 },
+  artists: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 18 },
+  empty: { alignItems: 'center', gap: 10, paddingTop: 12 },
+  emptyText: { color: colors.muted, fontSize: 14, textAlign: 'center' },
+  addAnyway: { borderWidth: 1, borderColor: colors.faint, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9 },
+  addAnywayText: { color: colors.text, fontWeight: '600' },
+  addLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', marginTop: 18 },
+  addLinkText: { color: colors.accent, fontWeight: '600' },
+  note: { color: colors.faint, fontSize: 12, marginTop: 20, lineHeight: 17, paddingHorizontal: 4 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.bg },
   done: { backgroundColor: colors.accent, borderRadius: 26, paddingVertical: 15, alignItems: 'center' },
   doneText: { color: colors.accentText, fontSize: 16, fontWeight: '800' },

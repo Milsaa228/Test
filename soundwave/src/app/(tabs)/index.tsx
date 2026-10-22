@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
+import { ArtistAvatar } from '../../components/ArtistAvatar';
 import { Cover } from '../../components/Cover';
 import { Icon } from '../../components/Icon';
 import { NetShelf } from '../../components/NetShelf';
@@ -12,7 +13,7 @@ import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { useReco } from '../../context/RecoContext';
 import { tracksLabel } from '../../lib/library';
-import { openCollection } from '../../lib/nav';
+import { openArtist, openCollection } from '../../lib/nav';
 import { MIX_INFO, type MixKind } from '../../lib/recommend';
 
 function greeting(d = new Date()) {
@@ -115,6 +116,14 @@ export default function Home() {
           </Pressable>
         ))}
       </View>
+
+      {state.prefs.artists.length > 0 && (
+        <Shelf title="Ваши исполнители">
+          {state.prefs.artists.map((name) => (
+            <ArtistAvatar key={name} name={name} size={110} showName onPress={() => openArtist(name)} />
+          ))}
+        </Shelf>
+      )}
 
       {recent.length > 0 && (
         <Shelf title="Недавно прослушанные">

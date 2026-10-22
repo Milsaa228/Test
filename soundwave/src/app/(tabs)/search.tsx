@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ArtistAvatar } from '../../components/ArtistAvatar';
 import { Cover } from '../../components/Cover';
 import { Icon } from '../../components/Icon';
 import { TrackRow } from '../../components/TrackRow';
@@ -10,12 +11,16 @@ import { colors } from '../../components/theme';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { useTrackMenu } from '../../context/TrackMenuContext';
-import { licenseLabel, searchArchive, type NetItem } from '../../lib/archive';
+import { licenseLabel, searchArchive, shortCreator, type NetItem } from '../../lib/archive';
+import { readJson, writeJson } from '../../lib/cache';
 import { GENRES } from '../../lib/genres';
 import { albumKey, colorsFor, search } from '../../lib/library';
-import { openCollection } from '../../lib/nav';
+import { openArtist } from '../../lib/nav';
+import { matchScore, normalize, queryVariants } from '../../lib/textq';
 
 type Mode = 'local' | 'net';
+const HISTORY_KEY = 'search-history';
+const HISTORY_LIMIT = 12;
 const NET_SUGGESTIONS = ['jazz', 'classical piano', 'lofi', 'synthwave', 'blues', 'ambient', 'rock', 'chiptune'];
 
 export default function Search() {
@@ -75,6 +80,61 @@ export default function Search() {
 
   const shownNet = net && net.q === netQuery ? net : null;
 
+  // История запросов: последние 12, без повторов.
+  const [history, setHistory] = useState<string[]>([]);
+  useEffect(() => {
+    readJson<string[]>(HISTORY_KEY).then((h) => h && setHistory(h));
+  }, []);
+  const remember = (text: string) => {
+    const t = text.trim();
+    if (t.length < 2 || /^https?:/i.test(t)) return;
+    setHistory((h) => {
+      const next = [t, ...h.filter((x) => normalize(x) !== normalize(t))].slice(0, HISTORY_LIMIT);
+      writeJson(HISTORY_KEY, next);
+      return next;
+    });
+  };
+  const clearHistory = () => {
+    setHistory([]);
+    writeJson(HISTORY_KEY, []);
+  };
+
+  // Исполнители среди найденного в интернете: имя похоже на запрос (с учётом транслита).
+  const netArtists = useMemo(() => {
+    if (!shownNet?.items.length) return [];
+    const variants = queryVariants(netQuery);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const it of shownNet.items) {
+      const name = shortCreator(it.creator).replace(/ и др\.$/, '');
+      const key = normalize(name);
+      if (!key || seen.has(key) || /^(various|va|unknown)/.test(key) || matchScore(name, variants) < 0.5) continue;
+      seen.add(key);
+      out.push(name);
+    }
+    return out.slice(0, 8);
+  }, [shownNet, netQuery]);
+
+  const historyBlock =
+    history.length > 0 ? (
+      <View>
+        <View style={styles.historyHead}>
+          <Text style={styles.sub}>Недавние запросы</Text>
+          <Pressable onPress={clearHistory} hitSlop={8}>
+            <Text style={styles.clear}>Очистить</Text>
+          </Pressable>
+        </View>
+        <View style={styles.suggest}>
+          {history.map((h) => (
+            <Pressable key={h} style={styles.suggestChip} onPress={() => setQuery(h)}>
+              <Icon name="search" size={14} color={colors.muted} />
+              <Text style={styles.chipText}>{h}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    ) : null;
+
   return (
     <View style={[styles.root, { paddingTop: insets.top + 12 }]}>
       <Text style={styles.heading}>Поиск</Text>
@@ -90,6 +150,7 @@ export default function Search() {
           autoCorrect={false}
           autoCapitalize="none"
           clearButtonMode="while-editing"
+          onSubmitEditing={() => remember(query)}
         />
         {query.length > 0 && (
           <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Очистить">
@@ -131,6 +192,7 @@ export default function Search() {
         ) : mode === 'net' ? (
           netQuery.length < 2 ? (
             <View>
+              {historyBlock}
               <Text style={styles.sub}>Свободная музыка из Internet Archive</Text>
               <Text style={styles.hint}>
                 Найдите альбом, послушайте его и скачайте понравившиеся треки — они будут играть без интернета. Можно также вставить прямую ссылку на
@@ -157,8 +219,32 @@ export default function Search() {
               <Text style={styles.nothingText}>В архиве больше записей на английском — попробуйте запрос на нём.</Text>
             </View>
           ) : (
-            shownNet.items.map((it) => (
-              <Pressable key={it.id} style={styles.entity} onPress={() => router.push({ pathname: '/net/[id]', params: { id: it.id } })}>
+            <>
+              {netArtists.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.artistRow}>
+                  {netArtists.map((name) => (
+                    <ArtistAvatar
+                      key={name}
+                      name={name}
+                      size={84}
+                      showName
+                      onPress={() => {
+                        remember(query);
+                        openArtist(name);
+                      }}
+                    />
+                  ))}
+                </ScrollView>
+              )}
+              {shownNet.items.map((it) => (
+              <Pressable
+                key={it.id}
+                style={styles.entity}
+                onPress={() => {
+                  remember(query);
+                  router.push({ pathname: '/net/[id]', params: { id: it.id } });
+                }}
+              >
                 <Cover colors={colorsFor(it.id)} size={48} icon="globe" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.entityTitle} numberOfLines={1}>
@@ -170,10 +256,12 @@ export default function Search() {
                   </Text>
                 </View>
               </Pressable>
-            ))
+              ))}
+            </>
           )
         ) : !query.trim() ? (
           <>
+            {historyBlock}
             <Text style={styles.sub}>Жанры в интернете</Text>
             <View style={styles.genres}>
               {GENRES.map((g) => (
@@ -200,8 +288,15 @@ export default function Search() {
         ) : (
           <>
             {results.artists.map((a) => (
-              <Pressable key={a.name} style={styles.entity} onPress={() => openCollection(`artist:${a.name}`)}>
-                <Cover colors={a.colors} size={48} round icon="user" />
+              <Pressable
+                key={a.name}
+                style={styles.entity}
+                onPress={() => {
+                  remember(query);
+                  openArtist(a.name);
+                }}
+              >
+                <ArtistAvatar name={a.name} size={48} />
                 <View>
                   <Text style={styles.entityTitle}>{a.name}</Text>
                   <Text style={styles.entitySub}>Исполнитель</Text>
@@ -209,7 +304,7 @@ export default function Search() {
               </Pressable>
             ))}
             {results.albums.map((a) => (
-              <Pressable key={a.artist + a.name} style={styles.entity} onPress={() => openCollection(albumKey(a.artist, a.name))}>
+              <Pressable key={a.artist + a.name} style={styles.entity} onPress={() => router.push({ pathname: '/collection/[id]', params: { id: albumKey(a.artist, a.name) } })}>
                 <Cover colors={a.colors} size={48} icon="disc" />
                 <View>
                   <Text style={styles.entityTitle}>{a.name}</Text>
@@ -223,7 +318,10 @@ export default function Search() {
                 track={t}
                 active={current?.id === t.id}
                 liked={isLiked(t.id)}
-                onPress={() => playList(results.tracks, i, null)}
+                onPress={() => {
+                  remember(query);
+                  playList(results.tracks, i, null);
+                }}
                 onMore={() => openTrackMenu({ track: t })}
               />
             ))}
@@ -247,7 +345,10 @@ const styles = StyleSheet.create({
   sub: { color: colors.text, fontSize: 17, fontWeight: '700', marginHorizontal: 16, marginTop: 16, marginBottom: 12 },
   hint: { color: colors.muted, fontSize: 14, marginHorizontal: 16, marginTop: -4, marginBottom: 14, lineHeight: 20 },
   suggest: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16 },
-  suggestChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.faint },
+  suggestChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.faint },
+  historyHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 16 },
+  clear: { color: colors.muted, fontSize: 13, marginTop: 4 },
+  artistRow: { paddingHorizontal: 12, gap: 6, paddingVertical: 8 },
   genres: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingHorizontal: 16 },
   genre: { flexBasis: '46%', flexGrow: 1, height: 96, borderRadius: 8, padding: 12 },
   genreText: { color: colors.text, fontSize: 17, fontWeight: '800' },

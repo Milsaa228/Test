@@ -1,8 +1,9 @@
+import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { readJson, removeKey, writeJson } from '../lib/cache';
 import { genreById } from '../lib/genres';
-import { buildMix, waveBatch, type Mix } from '../lib/reco';
+import { buildMix, buildRadio, waveBatch, type Mix, type RadioSeed } from '../lib/reco';
 import { MIX_INFO, offlineWave, periodKey, type MixKind } from '../lib/recommend';
 import type { Track } from '../lib/types';
 import { useLibrary } from './LibraryContext';
@@ -25,6 +26,10 @@ type RecoCtx = {
   startWave: () => Promise<void>;
   /** «Не нравится»: трек больше не попадёт в рекомендации; если играет — переключаем дальше. */
   dislike: (track: Track) => void;
+  /** Открывает экран «Плейлист по треку / исполнителю». */
+  openRadio: (seed: RadioSeed) => void;
+  radioSeed: (id: string) => RadioSeed | undefined;
+  makeRadio: (seed: RadioSeed) => Promise<Track[]>;
 };
 
 const Ctx = createContext<RecoCtx | null>(null);
@@ -155,6 +160,16 @@ export function RecoProvider({ children }: { children: ReactNode }) {
     [dispatch, current, next],
   );
 
+  // Сиды плейлистов храним в памяти: экран получает короткий id, а не весь трек в адресе.
+  const radioSeeds = useRef(new Map<string, RadioSeed>());
+  const openRadio = useCallback((seed: RadioSeed) => {
+    const id = seed.kind === 'track' ? `t-${seed.track.id}` : `a-${seed.name}`;
+    radioSeeds.current.set(id, seed);
+    router.push({ pathname: '/radio/[id]', params: { id } });
+  }, []);
+  const radioSeed = useCallback((id: string) => radioSeeds.current.get(id), []);
+  const makeRadio = useCallback((seed: RadioSeed) => buildRadio(seed, stateRef.current), []);
+
   const value = useMemo(
     () => ({
       mixes,
@@ -165,8 +180,11 @@ export function RecoProvider({ children }: { children: ReactNode }) {
       waveError,
       startWave,
       dislike,
+      openRadio,
+      radioSeed,
+      makeRadio,
     }),
-    [mixes, refreshMixes, shelves, player.source, waveLoading, waveError, startWave, dislike],
+    [mixes, refreshMixes, shelves, player.source, waveLoading, waveError, startWave, dislike, openRadio, radioSeed, makeRadio],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

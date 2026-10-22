@@ -1,4 +1,5 @@
 import { colorsFor } from './library';
+import { queryVariants } from './textq';
 import type { Track } from './types';
 
 // Internet Archive (archive.org): открытый каталог свободной музыки, без ключа API.
@@ -21,9 +22,20 @@ export const MUSIC_FILTER =
 
 const cleanText = (text: string) => text.replace(/[()":\\]/g, ' ').trim().replace(/\s+/g, ' ');
 
-/** Поисковый запрос по тексту пользователя. */
+/**
+ * Поисковый запрос по тексту пользователя: исходный текст и его варианты
+ * (транслит, исправленная раскладка, имя из словаря) через OR — «Металлика» найдёт Metallica.
+ */
 export function buildArchiveQuery(text: string): string {
-  return `(${cleanText(text)}) AND ${MUSIC_FILTER}`;
+  const variants = queryVariants(text).map(cleanText).filter(Boolean);
+  const expr = variants.length > 1 ? variants.map((v) => `(${v})`).join(' OR ') : (variants[0] ?? cleanText(text));
+  return `(${expr}) AND ${MUSIC_FILTER}`;
+}
+
+/** Исполнители по запросу (поле creator), с вариантами написания — для поиска на стартовом экране. */
+export function creatorSearchQuery(text: string): string {
+  const variants = queryVariants(text).map(cleanText).filter(Boolean);
+  return `(${variants.map((v) => `creator:(${v})`).join(' OR ')}) AND ${MUSIC_FILTER}`;
 }
 
 /** Запрос по исполнителю (точная фраза в поле creator). */

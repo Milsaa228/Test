@@ -18,6 +18,9 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="collection/[id]" />
               <Stack.Screen name="net/[id]" />
+              <Stack.Screen name="artist/[name]" />
+              <Stack.Screen name="radio/[id]" />
+              <Stack.Screen name="lyrics" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
               <Stack.Screen name="credits" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="onboarding" options={{ animation: 'fade', gestureEnabled: false }} />

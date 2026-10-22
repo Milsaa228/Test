@@ -1,3 +1,4 @@
+import { fuzzyIncludes, queryVariants } from './textq';
 import type { Collection, Disliked, LibraryState, Playlist, Track } from './types';
 
 export const EMPTY_LIBRARY: LibraryState = {
@@ -219,15 +220,13 @@ export function resolveCollection(id: string, s: LibraryState): Collection | nul
   return null;
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim();
-
+/** Поиск по медиатеке с учётом транслита, раскладки и русских написаний («металлика» → Metallica). */
 export function search(query: string, tracks: Track[]) {
-  const q = norm(query);
-  if (!q) return { tracks: [], artists: [], albums: [] };
-  const words = q.split(/\s+/);
+  const variants = queryVariants(query);
+  if (!variants.length) return { tracks: [], artists: [], albums: [] };
   const hit = (...fields: string[]) => {
-    const hay = norm(fields.join(' '));
-    return words.every((w) => hay.includes(w));
+    const hay = fields.join(' ');
+    return variants.some((v) => fuzzyIncludes(hay, v));
   };
   return {
     tracks: tracks.filter((t) => hit(t.title, t.artist, t.album)),

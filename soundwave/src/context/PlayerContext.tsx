@@ -38,6 +38,9 @@ type PlayerCtx = {
   cycleRepeat: () => void;
   playNext: (track: Track) => void;
   removeFromQueue: (index: number) => void;
+  /** Таймер сна: время остановки (мс) или «до конца трека». */
+  sleep: { at: number | null; endOfTrack: boolean };
+  setSleepTimer: (v: number | 'end' | null) => void;
 };
 
 const Ctx = createContext<PlayerCtx | null>(null);
@@ -49,6 +52,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [queue, setQueueState] = useState<QueueState>(EMPTY_QUEUE);
   const [source, setSource] = useState<string | null>(null);
   const [prefsReady, setPrefsReady] = useState(false);
+  const [sleep, setSleep] = useState<{ at: number | null; endOfTrack: boolean }>({ at: null, endOfTrack: false });
+  const sleepRef = useRef(sleep);
+  useEffect(() => {
+    sleepRef.current = sleep;
+  }, [sleep]);
   const restoreStarted = useRef(false);
 
   // Обработчики событий плеера читают актуальную очередь через ref, а не из замыкания.
@@ -114,9 +122,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (prefsReady) savePlayerPrefs({ shuffle: queue.shuffle, repeat: queue.repeat, lastTrackId: current?.id });
   }, [prefsReady, queue.shuffle, queue.repeat, current?.id]);
 
+  // Таймер сна по времени.
+  useEffect(() => {
+    if (!sleep.at) return;
+    const timer = setTimeout(() => {
+      player.pause();
+      setSleep({ at: null, endOfTrack: false });
+    }, Math.max(0, sleep.at - Date.now()));
+    return () => clearTimeout(timer);
+  }, [sleep.at, player]);
+
   // Трек доиграл — переходим к следующему по правилам повтора.
   useEffect(() => {
     if (!status.didJustFinish) return;
+    if (sleepRef.current.endOfTrack) {
+      player.pause();
+      setSleep({ at: null, endOfTrack: false });
+      return;
+    }
     const q = queueRef.current;
     const i = nextIndex(q, true);
     if (i == null) {
@@ -257,8 +280,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         else setQueue(queuePlayNext(q, t));
       },
       removeFromQueue: (i) => setQueue(removeAt(queueRef.current, i)),
+      sleep,
+      setSleepTimer: (v) =>
+        setSleep(v === null ? { at: null, endOfTrack: false } : v === 'end' ? { at: null, endOfTrack: true } : { at: Date.now() + v * 60_000, endOfTrack: false }),
     }),
-    [queue, current, source, status, playList, append, toggle, next, prev, player, goTo, setQueue],
+    [queue, current, source, status, playList, append, toggle, next, prev, player, goTo, setQueue, sleep],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

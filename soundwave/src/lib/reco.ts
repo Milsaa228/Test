@@ -1,5 +1,5 @@
 import { archiveTracks, artistQuery, genreQuery, queryArchive, type NetItem } from './archive';
-import { genreById, genresOfTrack } from './genres';
+import { ARTISTS, genreById, genresOfTrack } from './genres';
 import {
   assembleMix,
   MIX_INFO,
@@ -123,4 +123,44 @@ export async function waveBatch(s: LibraryState, o: { exclude: Set<string>; size
 /** Подборка записей для полки «Для вас» на главной. */
 export async function shelfItems(seed: Pick<Seed, 'kind' | 'value'>, fetchFn?: Fetch): Promise<NetItem[]> {
   return queryArchive(seedQuery(seed), { rows: 12 }, fetchFn);
+}
+
+export type RadioSeed = { kind: 'track'; track: Track } | { kind: 'artist'; name: string; tags?: string[] };
+
+/** Сколько треков в плейлисте по треку или исполнителю. */
+export const RADIO_SIZE = 25;
+
+/**
+ * Плейлист по треку или исполнителю: сам исполнитель плюс близкие жанры (по темам записи),
+ * чтобы были и знакомые треки, и похожая музыка других авторов.
+ */
+export async function buildRadio(seed: RadioSeed, s: LibraryState, o: { rand?: () => number; fetchFn?: Fetch } = {}): Promise<Track[]> {
+  const rand = o.rand ?? Math.random;
+  const artist = seed.kind === 'track' ? seed.track.artist : seed.name;
+  const known = ARTISTS.find((a) => a.name === artist);
+  const tagSource = seed.kind === 'track' ? seed.track : { tags: seed.tags, genre: known?.genre };
+  let genres = genresOfTrack(tagSource);
+  if (!genres.length) {
+    // Жанр неизвестен — берём его из сохранённых треков этого исполнителя.
+    genres = [...new Set(s.localTracks.filter((t) => t.artist === artist).flatMap((t) => genresOfTrack(t)))];
+  }
+  const seeds: Seed[] = [{ kind: 'artist', value: artist, weight: 1 }, ...shuffleWith(genres, rand).slice(0, 3).map((g) => ({ kind: 'genre' as const, value: g, weight: 1 }))];
+  const candidates = await gatherCandidates(seeds, {
+    rand,
+    // Для радио исполнителя — больше его записей; для радио трека — больше похожего.
+    itemsPerSeed: seed.kind === 'artist' ? 5 : 3,
+    tracksPerItem: 2,
+    fetchFn: o.fetchFn,
+  });
+  const exclude = seed.kind === 'track' ? new Set([seed.track.id]) : new Set<string>();
+  const tracks = assembleMix(candidates.filter((t) => !exclude.has(t.id)), {
+    size: RADIO_SIZE - (seed.kind === 'track' ? 1 : 0),
+    likedIds: new Set(s.liked),
+    maxLikedShare: WAVE_MAX_LIKED_SHARE,
+    dislikedIds: new Set(s.disliked.map((d) => d.id)),
+    perArtist: seed.kind === 'artist' ? 6 : 3,
+    rand,
+  });
+  if (!tracks.length && seed.kind === 'artist') throw new Error('Не нашлось записей этого исполнителя со свободной лицензией');
+  return seed.kind === 'track' ? [seed.track, ...tracks] : tracks;
 }

@@ -7,11 +7,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const out = mkdtempSync(join(tmpdir(), 'soundwave-live-'));
-execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node', '--skipLibCheck', '--strict', 'src/lib/reco.ts'], { stdio: 'inherit' });
+execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node', '--skipLibCheck', '--strict', 'src/lib/reco.ts', 'src/lib/images.ts', 'src/lib/lyrics.ts'], { stdio: 'inherit' });
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');
 const require = createRequire(join(out, 'x.js'));
 const { EMPTY_LIBRARY } = require('./library.js');
-const { buildMix, waveBatch, shelfItems } = require('./reco.js');
+const { buildMix, waveBatch, shelfItems, buildRadio } = require('./reco.js');
+const { findArtistImage } = require('./images.js');
+const { fetchLyrics } = require('./lyrics.js');
 const { GENRES, ARTISTS } = require('./genres.js');
 const { archiveTracks, searchArchive } = require('./archive.js');
 
@@ -54,15 +56,50 @@ for (const p of profiles) {
   }
 }
 
-// Каждый жанр и исполнитель стартового экрана должен давать записи.
+// Каждый жанр и исполнитель стартового экрана должен давать записи; у исполнителей проверяем и фото.
 for (const g of GENRES) {
   const items = await shelfItems({ kind: 'genre', value: g.id }).catch(() => []);
+  console.log(`genre ${g.id}: ${items.length} items`);
   if (items.length < 6) fail(`genre ${g.id}: only ${items.length} items`);
 }
+let withPhoto = 0;
 for (const a of ARTISTS) {
   const items = await shelfItems({ kind: 'artist', value: a.name }).catch(() => []);
-  console.log(`artist ${a.name}: ${items.length} items`);
+  const img = await findArtistImage(a.name).catch(() => null);
+  if (img) withPhoto++;
+  console.log(`artist ${a.name}: ${items.length} items, photo: ${img ? 'yes' : 'no'}`);
   if (items.length < 3) fail(`artist ${a.name}: only ${items.length} items`);
+}
+console.log(`artists with photo: ${withPhoto}/${ARTISTS.length}`);
+if (withPhoto < ARTISTS.length / 2) fail('too few artist photos');
+
+// Поиск с разбором текста: русское написание, транслит и неверная раскладка должны находить то же, что и оригинал.
+for (const [q, expect] of [['моцарт', 'mozart'], ['Шопен', 'chopin'], ['vjwfhn', 'mozart'], ['бах', 'bach'], ['nine inch nails', 'nine inch nails'], ['найн инч нейлз', null]]) {
+  const res = await searchArchive(q).catch((e) => (fail(`search ${q}: ${e.message}`), []));
+  const hit = expect ? res.some((it) => `${it.title} ${it.creator}`.toLowerCase().includes(expect)) : null;
+  console.log(`search "${q}": ${res.length} items${expect ? `, contains ${expect}: ${hit}` : ''}`);
+  if (expect && !hit) fail(`search "${q}" did not find ${expect}`);
+}
+
+// Плейлисты по треку и по исполнителю.
+{
+  const s = { ...EMPTY_LIBRARY, prefs: { genres: ['jazz'], artists: [], onboarded: true } };
+  const seedMix = await buildMix('day', s);
+  const seedTrack = seedMix.tracks[0];
+  const byTrack = await buildRadio({ kind: 'track', track: seedTrack }, s);
+  console.log(`\nradio by track "${seedTrack.title}" (${seedTrack.artist}): ${byTrack.length} tracks, artists: ${new Set(byTrack.map((t) => t.artist)).size}`);
+  if (byTrack.length < 10 || byTrack[0].id !== seedTrack.id) fail('radio by track');
+  const byArtist = await buildRadio({ kind: 'artist', name: 'Kevin MacLeod' }, s);
+  const own = byArtist.filter((t) => t.artist === 'Kevin MacLeod').length;
+  console.log(`radio by artist Kevin MacLeod: ${byArtist.length} tracks, own: ${own}`);
+  if (byArtist.length < 10 || own < 3) fail('radio by artist');
+}
+
+// Тексты песен.
+for (const t of [{ artist: 'Кино', title: 'Группа крови' }, { artist: 'Metallica', title: 'Nothing Else Matters (Remastered)' }]) {
+  const ly = await fetchLyrics(t).catch((e) => (fail(`lyrics ${t.title}: ${e.message}`), null));
+  console.log(`lyrics ${t.artist} — ${t.title}: synced ${ly?.synced?.length ?? 0} lines, plain ${ly?.plain ? 'yes' : 'no'}`);
+  if (!ly?.synced?.length) fail(`no synced lyrics for ${t.title}`);
 }
 
 // Обычный поиск и разбор метаданных.

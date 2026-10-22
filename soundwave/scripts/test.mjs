@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 const out = mkdtempSync(join(tmpdir(), 'soundwave-test-'));
 execFileSync('npx', ['tsc', '--outDir', out, '--module', 'commonjs', '--target', 'es2020', '--ignoreConfig', '--types', 'node',
-  '--skipLibCheck', '--strict', 'src/lib/queue.ts', 'src/lib/library.ts', 'src/lib/archive.ts', 'src/lib/genres.ts', 'src/lib/recommend.ts', 'src/lib/reco.ts'], { stdio: 'inherit' });
+  '--skipLibCheck', '--strict', 'src/lib/queue.ts', 'src/lib/library.ts', 'src/lib/archive.ts', 'src/lib/genres.ts', 'src/lib/recommend.ts', 'src/lib/reco.ts', 'src/lib/textq.ts', 'src/lib/lyrics.ts', 'src/lib/images.ts'], { stdio: 'inherit' });
 writeFileSync(join(out, 'package.json'), '{"type":"commonjs"}');
 const require = createRequire(join(out, 'x.js'));
 const Q = require('./queue.js');
@@ -18,6 +18,9 @@ const A = require('./archive.js');
 const G = require('./genres.js');
 const R = require('./recommend.js');
 const Reco = require('./reco.js');
+const Q2 = require('./textq.js');
+const Ly = require('./lyrics.js');
+const Img = require('./images.js');
 
 const T = (id) => ({ id, title: id, artist: 'A', album: 'B', uri: `u/${id}`, colors: ['#000', '#fff'] });
 const tracks = ['a', 'b', 'c', 'd', 'e'].map(T);
@@ -181,7 +184,9 @@ test('search, parseFileName and plural labels', () => {
 
 test('archive.org queries: license filter, no speech, artist/genre helpers', () => {
   const q = A.buildArchiveQuery('lo-fi "beats" (2020)');
-  assert.ok(q.startsWith('(lo-fi beats 2020) AND mediatype:(audio)'), q);
+  assert.ok(q.startsWith('((lo-fi beats 2020) OR (ло-фи беац 2020)) AND mediatype:(audio)'), q);
+  assert.ok(A.buildArchiveQuery('металлика').includes('(Metallica)'), 'russian spelling → canonical name');
+  assert.ok(A.creatorSearchQuery('кино').startsWith('(creator:(кино) OR creator:(kino)) AND'));
   for (const part of ['licenseurl:(*creativecommons.org* OR *publicdomain*)', '-collection:(librivoxaudio', '-subject:(podcast']) assert.ok(q.includes(part), part);
   assert.ok(A.artistQuery('Nine "Inch" Nails').startsWith('creator:("Nine Inch Nails") AND mediatype'));
   assert.ok(A.genreQuery('subject:(jazz)').startsWith('(subject:(jazz)) AND '));
@@ -237,7 +242,8 @@ test('genres: ids unique, artists reference genres, whole-word tag matching', ()
   assert.equal(new Set(G.GENRES.map((g) => g.id)).size, G.GENRES.length);
   assert.ok(G.ARTISTS.every((a) => G.genreById(a.genre)), 'artist genres exist');
   assert.deepEqual(G.genresOfTrack({ tags: ['Jazz', 'live'] }), ['jazz']);
-  assert.deepEqual(G.genresOfTrack({ tags: ['hip hop instrumental'] }), ['hiphop']);
+  assert.deepEqual(G.genresOfTrack({ tags: ['hip hop instrumental'] }), ['hiphop', 'instrumental']);
+  assert.ok(G.GENRES.length >= 35, 'many genres to choose from');
   assert.deepEqual(G.genresOfTrack({ tags: ['trap', 'scrapbook'] }), [], '"rap" is not matched inside other words');
   assert.deepEqual(G.genresOfTrack({ genre: 'classical' }), ['classical']);
 });
@@ -412,4 +418,97 @@ test('mapLimit keeps order, limits concurrency and isolates failures', async () 
   });
   assert.equal(peak, 2);
   assert.deepEqual(res.map((r) => (r.status === 'fulfilled' ? r.value : 'err')), [10, 20, 'err', 40, 50]);
+});
+
+// ---------- разбор поискового запроса ----------
+
+test('textq: layout swap, translit both ways, dictionary', () => {
+  assert.equal(Q2.swapLayout('vtnfkkbrf'), 'металлика');
+  assert.equal(Q2.swapLayout('ьуефддшсф'), 'metallica');
+  assert.equal(Q2.ruToLatin('эминем'), 'eminem');
+  assert.equal(Q2.ruToLatin('скриптонит'), 'skriptonit');
+  assert.equal(Q2.ruToLatin('металлика'), 'metallika');
+  assert.equal(Q2.latinToRu('kino'), 'кино');
+  assert.equal(Q2.latinToRu('basta'), 'баста');
+  assert.equal(Q2.latinToRu('zemfira'), 'земфира');
+  assert.equal(Q2.latinToRu('shchedrin'), 'щедрин');
+  assert.equal(Q2.dictionaryName('Рианна'), 'Rihanna');
+  assert.equal(Q2.dictionaryName('имаджин драгонс'), 'Imagine Dragons');
+  assert.equal(Q2.dictionaryName('имэджн драгонс'), 'Imagine Dragons', 'typo tolerated');
+  assert.equal(Q2.dictionaryName('уикенд blinding lights'), 'The Weeknd', 'name at the start of a longer query');
+  assert.equal(Q2.dictionaryName('кино'), null);
+  assert.equal(Q2.dictionaryName('metallica'), null, 'latin queries are not looked up');
+});
+
+test('textq: query variants cover the cases found on the live catalog', () => {
+  const v = (q) => Q2.queryVariants(q);
+  assert.deepEqual(v('Металлика'), ['Металлика', 'Metallica', 'metallika']);
+  assert.deepEqual(v('Эминем'), ['Эминем', 'Eminem']);
+  assert.deepEqual(v('kino'), ['kino', 'кино']);
+  assert.deepEqual(v('basta'), ['basta', 'баста']);
+  assert.ok(v('vtnfkkbrf').includes('металлика') && v('vtnfkkbrf').includes('Metallica'), 'wrong layout → russian → dictionary');
+  assert.ok(v('ьуефддшсф').includes('metallica'), 'wrong layout to latin');
+  assert.deepEqual(v('  '), []);
+  assert.ok(v('Кино группа крови').length <= 4);
+  assert.equal(v('Imagine Dragons')[0], 'Imagine Dragons');
+});
+
+test('textq: match score and fuzzy includes for ranking and library search', () => {
+  assert.equal(Q2.matchScore('Metallica', ['металлика', 'Metallica']), 1);
+  assert.equal(Q2.matchScore('Кино', ['kino', 'кино']), 1);
+  assert.ok(Q2.matchScore('The Weeknd', ['weeknd']) === 1, 'leading "the" ignored');
+  assert.ok(Q2.matchScore('Коррозия Металла', ['Metallica']) < 0.6);
+  assert.ok(Q2.fuzzyIncludes('Земфира — Хочешь', 'zemfira'));
+  assert.ok(Q2.fuzzyIncludes('Skriptonit', 'скриптонит'));
+  assert.ok(!Q2.fuzzyIncludes('Bach', 'mozart'));
+  assert.ok(L.search('металлика', [NT('m', { artist: 'Metallica', title: 'One' })]).tracks.length === 1, 'library search uses variants');
+});
+
+// ---------- тексты песен и фото ----------
+
+test('lyrics: synced parsing, current line, title cleanup, fetch fallback', async () => {
+  const lines = Ly.parseSynced('[ar:Кино]\n[00:44.75] Тёплое место\n[00:48.42]Отпечатков наших ног\n[01:00.3][02:00.30] Припев\nбез метки');
+  assert.deepEqual(lines.map((l) => [l.t, l.text]), [[44.75, 'Тёплое место'], [48.42, 'Отпечатков наших ног'], [60.3, 'Припев'], [120.3, 'Припев']]);
+  assert.equal(Ly.currentLine(lines, 10), -1);
+  assert.equal(Ly.currentLine(lines, 45), 0);
+  assert.equal(Ly.currentLine(lines, 61), 2);
+  assert.equal(Ly.currentLine(lines, 500), 3);
+  assert.equal(Ly.cleanTrackTitle('Blackened (Remastered)'), 'Blackened');
+  assert.equal(Ly.cleanTrackTitle('Song - Live at Wembley'), 'Song');
+  assert.equal(Ly.cleanTrackTitle('Hit feat. Someone'), 'Hit');
+  const calls = [];
+  const fetchFn = async (url) => {
+    calls.push(url);
+    if (url.includes('/api/get')) return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => [{ plainLyrics: 'a' }, { syncedLyrics: '[00:01.00] x', plainLyrics: 'x' }] };
+  };
+  const r = await Ly.fetchLyrics({ artist: 'A', title: 'T (Live)', duration: 200 }, fetchFn);
+  assert.deepEqual(r.synced, [{ t: 1, text: 'x' }]);
+  assert.ok(calls[0].includes('track_name=T') && calls[0].includes('duration=200'));
+  assert.equal(await Ly.fetchLyrics({ artist: 'A', title: 'T' }, async (u) => (u.includes('/api/get') ? { ok: false, status: 404, json: async () => ({}) } : { ok: true, status: 200, json: async () => [] })), null);
+});
+
+test('artist image: exact name, most fans, no placeholder', () => {
+  const res = [
+    { name: 'Kino', nb_fan: 31, picture_medium: 'https://x/kino-small.jpg' },
+    { name: 'Кино', nb_fan: 323314, picture_medium: 'https://x/kino.jpg' },
+    { name: 'Кинопамять', nb_fan: 64, picture_medium: 'https://x/other.jpg' },
+  ];
+  assert.equal(Img.pickArtistImage('Кино', res), 'https://x/kino.jpg');
+  assert.equal(Img.pickArtistImage('Kino', res), 'https://x/kino.jpg', 'translit equal → most popular');
+  assert.equal(Img.pickArtistImage('Nobody', res), null);
+  assert.equal(Img.pickArtistImage('X', [{ name: 'X', picture_medium: 'https://e-cdns-images.dzcdn.net/images/artist//250x250.jpg' }]), null);
+});
+
+// ---------- плейлист по треку и исполнителю ----------
+
+test('radio by track starts with the track and mixes artist with similar genres', async () => {
+  const { fetchFn } = fakeArchive();
+  const seedTrack = NT('seed', { artist: 'jazz Band 1', tags: ['jazz'] });
+  const r = await Reco.buildRadio({ kind: 'track', track: seedTrack }, lib(), { fetchFn, rand: R.seededRandom('r') });
+  assert.equal(r[0].id, 'seed');
+  assert.ok(r.length >= 10 && r.length <= Reco.RADIO_SIZE);
+  assert.equal(new Set(r.map((t) => t.id)).size, r.length, 'no duplicates');
+  const byArtist = await Reco.buildRadio({ kind: 'artist', name: 'Grateful Dead' }, lib(), { fetchFn, rand: R.seededRandom('a') });
+  assert.ok(byArtist.length > 0 && byArtist.length <= Reco.RADIO_SIZE);
 });

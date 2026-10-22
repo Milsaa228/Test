@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -7,6 +7,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Cover } from '../components/Cover';
 import { Icon } from '../components/Icon';
 import { ProgressBar } from '../components/ProgressBar';
+import { Sheet } from '../components/Sheet';
 import { colors } from '../components/theme';
 import { useLibrary } from '../context/LibraryContext';
 import { usePlayer } from '../context/PlayerContext';
@@ -15,7 +16,13 @@ import { useTrackMenu } from '../context/TrackMenuContext';
 import { licenseLabel } from '../lib/archive';
 import { resolveCollection } from '../lib/library';
 import { MIX_INFO, type MixKind } from '../lib/recommend';
-import { openCollection } from '../lib/nav';
+import { openArtist, openCollection } from '../lib/nav';
+
+function timerLabel(sleep: { at: number | null; endOfTrack: boolean }): string {
+  if (sleep.endOfTrack) return 'До конца';
+  if (sleep.at) return `${Math.max(1, Math.ceil((sleep.at - Date.now()) / 60_000))} мин`;
+  return 'Таймер';
+}
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
@@ -24,6 +31,7 @@ export default function PlayerScreen() {
   const library = useLibrary();
   const { openTrackMenu, showToast } = useTrackMenu();
   const reco = useReco();
+  const [timerSheet, setTimerSheet] = useState(false);
   const gradientId = `bg${useId().replace(/:/g, '')}`;
   const t = p.current;
 
@@ -105,10 +113,9 @@ export default function PlayerScreen() {
         <View style={styles.titleRow}>
           <Pressable
             style={{ flex: 1 }}
-            disabled={!library.tracks.has(t.id)}
             onPress={() => {
               close();
-              openCollection(`artist:${t.artist}`);
+              openArtist(t.artist);
             }}
           >
             <Text style={styles.title} numberOfLines={1}>
@@ -172,13 +179,73 @@ export default function PlayerScreen() {
           </Pressable>
         </View>
 
+        <Text style={styles.muted}>{status.isBuffering && p.playing ? 'Загрузка…' : ' '}</Text>
         <View style={styles.bottom}>
-          <Text style={styles.muted}>{status.isBuffering && p.playing ? 'Загрузка…' : ''}</Text>
-          <Pressable onPress={() => router.push('/queue')} hitSlop={10} accessibilityLabel="Очередь">
-            <Icon name="queue" size={22} color={colors.text} />
-          </Pressable>
+          {(
+            [
+              { icon: 'note', label: 'Текст', onPress: () => router.push('/lyrics') },
+              {
+                icon: 'wave',
+                label: 'Похожие',
+                disabled: library.offline,
+                onPress: () => {
+                  close();
+                  reco.openRadio({ kind: 'track', track: t });
+                },
+              },
+              {
+                icon: 'user',
+                label: 'Исполнитель',
+                onPress: () => {
+                  close();
+                  openArtist(t.artist);
+                },
+              },
+              { icon: 'moon', label: timerLabel(p.sleep), active: !!(p.sleep.at || p.sleep.endOfTrack), onPress: () => setTimerSheet(true) },
+              { icon: 'queue', label: 'Очередь', onPress: () => router.push('/queue') },
+            ] as const
+          ).map((b) => (
+            <Pressable
+              key={b.icon}
+              onPress={b.onPress}
+              disabled={'disabled' in b && b.disabled}
+              style={[styles.action, 'disabled' in b && b.disabled && { opacity: 0.35 }]}
+              accessibilityLabel={b.label}
+            >
+              <Icon name={b.icon} size={22} color={'active' in b && b.active ? colors.accent : colors.text} />
+              <Text style={[styles.actionText, 'active' in b && b.active && { color: colors.accent }]} numberOfLines={1}>
+                {b.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
       </View>
+
+      <Sheet visible={timerSheet} onClose={() => setTimerSheet(false)}>
+        <Text style={styles.sheetTitle}>Таймер сна</Text>
+        {[
+          { label: 'Через 15 минут', v: 15 },
+          { label: 'Через 30 минут', v: 30 },
+          { label: 'Через 45 минут', v: 45 },
+          { label: 'Через 1 час', v: 60 },
+          { label: 'Через 1,5 часа', v: 90 },
+          { label: 'В конце трека', v: 'end' as const },
+          ...(p.sleep.at || p.sleep.endOfTrack ? [{ label: 'Выключить таймер', v: null }] : []),
+        ].map((o) => (
+          <Pressable
+            key={o.label}
+            style={styles.sheetItem}
+            onPress={() => {
+              p.setSleepTimer(o.v);
+              setTimerSheet(false);
+              showToast(o.v === null ? 'Таймер выключен' : o.v === 'end' ? 'Остановим в конце трека' : `Остановим через ${o.v} мин`);
+            }}
+          >
+            <Icon name={o.v === null ? 'close' : 'moon'} size={20} color={o.v === null ? colors.danger : colors.muted} />
+            <Text style={[styles.sheetText, o.v === null && { color: colors.danger }]}>{o.label}</Text>
+          </Pressable>
+        ))}
+      </Sheet>
     </View>
   );
 }
@@ -202,7 +269,12 @@ const styles = StyleSheet.create({
   play: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.text, alignItems: 'center', justifyContent: 'center' },
   dot: { position: 'absolute', bottom: -8, alignSelf: 'center', width: 4, height: 4, borderRadius: 2, backgroundColor: colors.accent },
   one: { position: 'absolute', top: -6, right: -6, color: colors.accent, fontSize: 10, fontWeight: '800' },
-  bottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
+  bottom: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 4 },
+  action: { alignItems: 'center', gap: 4, minWidth: 56 },
+  actionText: { color: colors.text, fontSize: 11 },
+  sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '800', marginHorizontal: 16, marginBottom: 6 },
+  sheetItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 13 },
+  sheetText: { color: colors.text, fontSize: 16 },
   muted: { color: colors.muted, fontSize: 13 },
   closeBtn: { borderWidth: 1, borderColor: colors.faint, borderRadius: 24, paddingHorizontal: 24, paddingVertical: 10 },
   closeText: { color: colors.text, fontWeight: '600' },

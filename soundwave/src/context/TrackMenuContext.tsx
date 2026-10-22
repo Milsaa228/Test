@@ -8,6 +8,7 @@ import { NamePrompt } from '../components/NamePrompt';
 import { Sheet } from '../components/Sheet';
 import { colors } from '../components/theme';
 import { albumKey, tracksLabel } from '../lib/library';
+import { openArtist } from '../lib/nav';
 import type { Track } from '../lib/types';
 import { useLibrary } from './LibraryContext';
 import { usePlayer } from './PlayerContext';
@@ -154,7 +155,34 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
             close();
           },
         },
-        ...(saved ? [{ icon: 'user' as const, label: 'К исполнителю', onPress: () => go(`artist:${track.artist}`) }] : []),
+        ...(!library.offline
+          ? [
+              {
+                icon: 'wave' as const,
+                label: 'Плейлист по треку',
+                onPress: () => {
+                  close();
+                  reco.openRadio({ kind: 'track', track });
+                },
+              },
+              {
+                icon: 'wave' as const,
+                label: 'Плейлист по исполнителю',
+                onPress: () => {
+                  close();
+                  reco.openRadio({ kind: 'artist', name: track.artist, tags: track.tags });
+                },
+              },
+            ]
+          : []),
+        {
+          icon: 'user' as const,
+          label: 'К исполнителю',
+          onPress: () => {
+            close();
+            openArtist(track.artist);
+          },
+        },
         ...(saved && !track.local && !track.online
           ? [{ icon: 'disc' as const, label: 'К альбому', onPress: () => go(albumKey(track.artist, track.album)) }]
           : []),

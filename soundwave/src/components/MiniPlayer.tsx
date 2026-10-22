@@ -10,7 +10,7 @@ import { colors } from './theme';
 /** Мини-плеер над нижними вкладками. */
 export function MiniPlayer() {
   const { current, playing, status, toggle } = usePlayer();
-  const { isLiked, dispatch } = useLibrary();
+  const { isLiked, toggleLike } = useLibrary();
   if (!current) return null;
   const liked = isLiked(current.id);
   const ratio = status.duration > 0 ? Math.min(1, status.currentTime / status.duration) : 0;
@@ -27,7 +27,7 @@ export function MiniPlayer() {
             {status.error ? 'Не удалось воспроизвести' : status.isBuffering && playing ? 'Загрузка…' : current.artist}
           </Text>
         </View>
-        <Pressable hitSlop={8} onPress={() => dispatch({ type: 'toggleLike', id: current.id })} accessibilityLabel={liked ? 'Убрать из любимых' : 'В любимые'}>
+        <Pressable hitSlop={8} onPress={() => toggleLike(current)} accessibilityLabel={liked ? 'Убрать из любимых' : 'В любимые'}>
           <Icon name={liked ? 'heart' : 'heartOutline'} size={24} color={liked ? colors.accent : colors.text} />
         </Pressable>
         <Pressable hitSlop={8} onPress={toggle} style={styles.play} accessibilityLabel={playing ? 'Пауза' : 'Играть'}>

@@ -11,11 +11,13 @@ type Props = {
   active?: boolean;
   liked?: boolean;
   number?: number;
+  /** Прогресс скачивания 0…1. */
+  progress?: number;
   onPress: () => void;
   onMore?: () => void;
 };
 
-export function TrackRow({ track, active, liked, number, onPress, onMore }: Props) {
+export function TrackRow({ track, active, liked, number, progress, onPress, onMore }: Props) {
   return (
     <Pressable
       onPress={onPress}
@@ -31,13 +33,18 @@ export function TrackRow({ track, active, liked, number, onPress, onMore }: Prop
         </Text>
         <View style={styles.sub}>
           {liked && <Icon name="heart" size={12} color={colors.accent} />}
-          {track.local && <Icon name="folder" size={12} color={colors.muted} />}
+          {track.local && <Icon name="download" size={12} color={colors.accent} />}
+          {track.online && !track.local && <Icon name="cloud" size={12} color={colors.muted} />}
           <Text style={styles.artist} numberOfLines={1}>
             {track.artist}
           </Text>
         </View>
       </View>
-      {track.duration != null && <Text style={styles.dur}>{formatTime(track.duration)}</Text>}
+      {progress != null ? (
+        <Text style={[styles.dur, { color: colors.accent }]}>{Math.round(progress * 100)}%</Text>
+      ) : (
+        track.duration != null && <Text style={styles.dur}>{formatTime(track.duration)}</Text>
+      )}
       {onMore && (
         <Pressable onPress={onMore} hitSlop={10} style={styles.more} accessibilityLabel="Действия с треком">
           <Icon name="more" size={20} color={colors.muted} />

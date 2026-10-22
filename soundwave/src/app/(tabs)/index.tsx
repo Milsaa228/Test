@@ -1,13 +1,14 @@
+import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Cover } from '../../components/Cover';
+import { Icon } from '../../components/Icon';
 import { MediaCard, Shelf } from '../../components/Shelf';
 import { colors } from '../../components/theme';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
-import { albumsOf, artistsOf, CATALOG, FEATURED } from '../../lib/catalog';
-import { albumKey } from '../../lib/library';
+import { artistsOf, FEATURED, GENRES } from '../../lib/catalog';
 import { openCollection } from '../../lib/nav';
 import type { Track } from '../../lib/types';
 
@@ -61,17 +62,29 @@ export default function Home() {
         ))}
       </Shelf>
 
-      <Shelf title="Популярные альбомы">
-        {albumsOf(CATALOG).map((a) => (
-          <MediaCard key={a.artist + a.name} title={a.name} subtitle={a.artist} colors={a.colors} icon="disc" onPress={() => openCollection(albumKey(a.artist, a.name))} />
+      <Shelf title="Жанры">
+        {GENRES.map((g) => (
+          <MediaCard key={g.name} title={g.name} subtitle="Жанр" colors={[g.color, '#121212']} onPress={() => openCollection(`genre:${g.name}`)} />
         ))}
       </Shelf>
 
       <Shelf title="Исполнители">
-        {artistsOf(CATALOG).map((a) => (
+        {artistsOf([...tracks.values()]).map((a) => (
           <MediaCard key={a.name} title={a.name} subtitle="Исполнитель" colors={a.colors} round icon="user" onPress={() => openCollection(`artist:${a.name}`)} />
         ))}
       </Shelf>
+
+      <Pressable style={styles.netBanner} onPress={() => router.navigate({ pathname: '/search', params: { mode: 'net' } })}>
+        <Icon name="globe" size={28} color={colors.accent} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.netTitle}>Больше музыки в интернете</Text>
+          <Text style={styles.netText}>Тысячи свободных альбомов в Internet Archive: слушайте и скачивайте в медиатеку</Text>
+        </View>
+      </Pressable>
+
+      <Pressable onPress={() => router.push('/credits')}>
+        <Text style={styles.credits}>Музыка в приложении: Kevin MacLeod (incompetech.com), CC BY 4.0 · Подробнее</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -81,5 +94,9 @@ const styles = StyleSheet.create({
   hello: { color: colors.text, fontSize: 26, fontWeight: '800', marginHorizontal: 16, marginBottom: 16 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 8 },
   quick: { flexBasis: '47%', flexGrow: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 6, overflow: 'hidden', gap: 10 },
+  netBanner: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: 16, marginTop: 28, padding: 16, borderRadius: 10, backgroundColor: colors.card },
+  netTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  netText: { color: colors.muted, fontSize: 13, marginTop: 3 },
+  credits: { color: colors.faint, fontSize: 12, textAlign: 'center', marginHorizontal: 24, marginTop: 24 },
   quickText: { flex: 1, color: colors.text, fontWeight: '700', fontSize: 13, paddingRight: 8 },
 });

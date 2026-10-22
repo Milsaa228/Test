@@ -17,7 +17,7 @@ import { useTrackMenu } from '../../context/TrackMenuContext';
 import { resolveCollection } from '../../lib/library';
 import { formatTotal } from '../../lib/queue';
 
-const ICONS = { liked: 'heart', local: 'folder', artist: 'user', album: 'disc', playlist: 'note', genre: 'note' } as const;
+const ICONS = { liked: 'heart', local: 'download', artist: 'user', album: 'disc', playlist: 'note', genre: 'note' } as const;
 
 function confirm(title: string, message: string, onOk: () => void) {
   if (Platform.OS === 'web') {
@@ -120,6 +120,14 @@ export default function CollectionScreen() {
       <View style={styles.empty}>
         <Text style={styles.emptyTitle}>Здесь будут любимые треки</Text>
         <Text style={styles.emptyText}>Нажимайте ♥ в плеере или в меню трека.</Text>
+      </View>
+    ) : col.kind === 'local' ? (
+      <View style={styles.empty}>
+        <Text style={styles.emptyTitle}>Здесь будут ваши треки</Text>
+        <Text style={styles.emptyText}>Скачайте музыку из интернета или добавьте файлы с устройства в разделе «Медиатека».</Text>
+        <Pressable style={styles.findBtn} onPress={() => router.navigate({ pathname: '/search', params: { mode: 'net' } })}>
+          <Text style={styles.findText}>Найти в интернете</Text>
+        </Pressable>
       </View>
     ) : (
       <View style={styles.empty}>

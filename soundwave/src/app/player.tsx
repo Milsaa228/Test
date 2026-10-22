@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useId } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
@@ -11,6 +11,7 @@ import { colors } from '../components/theme';
 import { useLibrary } from '../context/LibraryContext';
 import { usePlayer } from '../context/PlayerContext';
 import { useTrackMenu } from '../context/TrackMenuContext';
+import { licenseLabel } from '../lib/archive';
 import { resolveCollection } from '../lib/library';
 import { openCollection } from '../lib/nav';
 
@@ -37,7 +38,13 @@ export default function PlayerScreen() {
   }
 
   const liked = library.isLiked(t.id);
-  const sourceTitle = p.source ? (p.source === 'recent' ? 'Недавно прослушанные' : resolveCollection(p.source, library.state)?.title) : undefined;
+  const sourceTitle = !p.source
+    ? undefined
+    : p.source === 'recent'
+      ? 'Недавно прослушанные'
+      : p.source.startsWith('net:')
+        ? t.album
+        : resolveCollection(p.source, library.state)?.title;
   const coverSize = Math.min(width - 48, height * 0.42, 420);
   const status = p.status;
   const duration = status.duration > 0 ? status.duration : (t.duration ?? 0);
@@ -65,7 +72,8 @@ export default function PlayerScreen() {
           onPress={() => {
             if (!p.source) return;
             close();
-            openCollection(p.source);
+            if (p.source.startsWith('net:')) router.push({ pathname: '/net/[id]', params: { id: p.source.slice(4) } });
+            else openCollection(p.source);
           }}
         >
           <Text style={styles.topLabel}>{sourceTitle ? 'Играет из' : 'Сейчас играет'}</Text>
@@ -90,6 +98,7 @@ export default function PlayerScreen() {
         <View style={styles.titleRow}>
           <Pressable
             style={{ flex: 1 }}
+            disabled={!library.tracks.has(t.id)}
             onPress={() => {
               close();
               openCollection(`artist:${t.artist}`);
@@ -102,10 +111,19 @@ export default function PlayerScreen() {
               {t.artist}
             </Text>
           </Pressable>
-          <Pressable onPress={() => library.dispatch({ type: 'toggleLike', id: t.id })} hitSlop={10} accessibilityLabel={liked ? 'Убрать из любимых' : 'В любимые'}>
+          <Pressable onPress={() => library.toggleLike(t)} hitSlop={10} accessibilityLabel={liked ? 'Убрать из любимых' : 'В любимые'}>
             <Icon name={liked ? 'heart' : 'heartOutline'} size={28} color={liked ? colors.accent : colors.text} />
           </Pressable>
         </View>
+
+        {t.license ? (
+          <Pressable disabled={!t.sourceUrl} onPress={() => t.sourceUrl && Linking.openURL(t.sourceUrl).catch(() => {})}>
+            <Text style={styles.license} numberOfLines={1}>
+              {licenseLabel(t.license)}
+              {t.sourceUrl ? ` · ${t.sourceUrl.replace(/^https?:\/\/(www\.)?/, '').split('/')[0]}` : ''}
+            </Text>
+          </Pressable>
+        ) : null}
 
         <ProgressBar position={status.currentTime} duration={duration} onSeek={p.seek} />
         {status.error ? <Text style={styles.error}>Не удалось воспроизвести: {status.error}</Text> : null}
@@ -160,6 +178,7 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 22, fontWeight: '800' },
   artist: { color: 'rgba(255,255,255,0.75)', fontSize: 16, marginTop: 2 },
   error: { color: colors.danger, fontSize: 13 },
+  license: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: -6, marginBottom: 2 },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
   play: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.text, alignItems: 'center', justifyContent: 'center' },
   dot: { position: 'absolute', bottom: -8, alignSelf: 'center', width: 4, height: 4, borderRadius: 2, backgroundColor: colors.accent },

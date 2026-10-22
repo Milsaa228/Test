@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Cover } from '../components/Cover';
 import { Icon, type IconName } from '../components/Icon';
@@ -19,7 +19,28 @@ type MenuTarget = {
   index?: number;
 };
 
-type Ctx = { openTrackMenu: (t: MenuTarget) => void; showToast: (text: string) => void };
+type Ctx = {
+  openTrackMenu: (t: MenuTarget) => void;
+  showToast: (text: string) => void;
+  /** Добавляет трек по прямой ссылке: в приложении скачивает файл, в браузере сохраняет поток. */
+  addFromUrl: (url: string) => Promise<void>;
+};
+
+/** Проверка ссылки до скачивания: адрес http(s) и, если сервер ответил на HEAD, — не HTML-страница. */
+export async function checkAudioUrl(raw: string): Promise<string> {
+  const url = raw.trim();
+  if (!/^https?:\/\/\S+$/i.test(url)) throw new Error('Нужна ссылка вида https://…/трек.mp3');
+  try {
+    const res = await fetch(url, { method: 'HEAD' });
+    const type = res.headers.get('content-type') ?? '';
+    if (res.ok && /text\/html/i.test(type)) throw new Error('По ссылке веб-страница, а не аудиофайл. Нужна прямая ссылка на MP3, M4A, OGG и т.п.');
+    if (res.status === 404) throw new Error('Файл по ссылке не найден (404)');
+  } catch (e) {
+    // Сеть или CORS могут не пустить HEAD — тогда проверим при скачивании/воспроизведении.
+    if (e instanceof Error && /страница|404/.test(e.message)) throw e;
+  }
+  return url;
+}
 const TrackMenuCtx = createContext<Ctx | null>(null);
 
 export function TrackMenuProvider({ children }: { children: ReactNode }) {
@@ -42,6 +63,21 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
   const close = () => setTarget(null);
   const track = target?.track;
   const liked = track ? library.isLiked(track.id) : false;
+  const saved = track ? library.tracks.get(track.id) : undefined;
+  const downloading = track ? library.downloads[track.id] != null : false;
+
+  const startDownload = (t: typeof track) => {
+    if (!t) return;
+    showToast('Скачивание началось');
+    library
+      .download(t)
+      .then(() => showToast(`«${t.title}» сохранён на устройстве`))
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (Platform.OS === 'web') showToast('Не удалось скачать трек');
+        else Alert.alert('Не удалось скачать трек', msg);
+      });
+  };
 
   const go = (href: string) => {
     close();
@@ -55,12 +91,37 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
           label: liked ? 'Удалить из любимых' : 'Добавить в любимые',
           color: liked ? colors.accent : undefined,
           onPress: () => {
-            library.dispatch({ type: 'toggleLike', id: track.id });
+            library.toggleLike(track);
             showToast(liked ? 'Удалено из любимых' : 'Добавлено в любимые');
             close();
           },
         },
         { icon: 'plus', label: 'Добавить в плейлист', onPress: () => setMode('playlists') },
+        ...(track.online && !saved
+          ? [
+              {
+                icon: 'library' as const,
+                label: 'Сохранить в «Мои треки»',
+                onPress: () => {
+                  library.remember(track);
+                  showToast('Сохранено в «Мои треки»');
+                  close();
+                },
+              },
+            ]
+          : []),
+        ...(track.online && !(saved ?? track).local && library.canDownload
+          ? [
+              {
+                icon: 'download' as const,
+                label: downloading ? 'Скачивается…' : 'Скачать на устройство',
+                onPress: () => {
+                  if (!downloading) startDownload(saved ?? track);
+                  close();
+                },
+              },
+            ]
+          : []),
         {
           icon: 'addQueue',
           label: 'Играть следующим',
@@ -82,13 +143,27 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
               },
             ]
           : []),
-        { icon: 'user', label: 'К исполнителю', onPress: () => go(`artist:${track.artist}`) },
-        ...(!track.local ? [{ icon: 'disc' as const, label: 'К альбому', onPress: () => go(albumKey(track.artist, track.album)) }] : []),
-        ...(track.local
+        ...(saved ? [{ icon: 'user' as const, label: 'К исполнителю', onPress: () => go(`artist:${track.artist}`) }] : []),
+        ...(saved && !track.local && !track.online
+          ? [{ icon: 'disc' as const, label: 'К альбому', onPress: () => go(albumKey(track.artist, track.album)) }]
+          : []),
+        ...(track.sourceUrl
+          ? [
+              {
+                icon: 'globe' as const,
+                label: 'Страница источника',
+                onPress: () => {
+                  close();
+                  Linking.openURL(track.sourceUrl!).catch(() => {});
+                },
+              },
+            ]
+          : []),
+        ...(saved && (track.local || track.online)
           ? [
               {
                 icon: 'trash' as const,
-                label: 'Удалить файл из приложения',
+                label: saved.local ? 'Удалить файл из приложения' : 'Удалить из «Мои треки»',
                 color: colors.danger,
                 onPress: () => {
                   library.removeLocal(track.id);
@@ -102,6 +177,7 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
 
   const addTo = (playlistId: string, name: string) => {
     if (!track) return;
+    library.remember(track);
     const p = library.state.playlists.find((x) => x.id === playlistId);
     if (p?.trackIds.includes(track.id)) showToast(`Уже есть в «${name}»`);
     else {
@@ -111,7 +187,24 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
     close();
   };
 
-  const value = useMemo(() => ({ openTrackMenu, showToast }), [openTrackMenu, showToast]);
+  const { trackFromUrl, download, remember, canDownload } = library;
+  const addFromUrl = useCallback(
+    async (raw: string) => {
+      const url = await checkAudioUrl(raw);
+      const t = trackFromUrl(url);
+      if (!canDownload) {
+        remember(t);
+        showToast(`«${t.title}» добавлен в «Мои треки»`);
+        return;
+      }
+      showToast('Скачивание началось');
+      await download(t);
+      showToast(`«${t.title}» сохранён на устройстве`);
+    },
+    [trackFromUrl, download, remember, canDownload, showToast],
+  );
+
+  const value = useMemo(() => ({ openTrackMenu, showToast, addFromUrl }), [openTrackMenu, showToast, addFromUrl]);
 
   return (
     <TrackMenuCtx.Provider value={value}>
@@ -168,6 +261,7 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
         onCancel={() => setMode('playlists')}
         onSubmit={(name) => {
           if (!track) return;
+          library.remember(track);
           library.createPlaylist(name, [track.id]);
           showToast('Плейлист создан');
           close();

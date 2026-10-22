@@ -13,6 +13,7 @@ import {
   toggleShuffle as queueToggleShuffle,
   type QueueState,
 } from '../lib/queue';
+import { audioSource } from '../lib/musicAssets';
 import { loadPlayerPrefs, savePlayerPrefs } from '../lib/storage';
 import type { Track } from '../lib/types';
 import { useLibrary } from './LibraryContext';
@@ -67,7 +68,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (loadedId.current === track.id && p.isLoaded) {
         p.seekTo(0);
       } else {
-        p.replace({ uri: track.uri });
+        p.replace(audioSource(track));
         loadedId.current = track.id;
         try {
           p.setActiveForLockScreen(true, { title: track.title, artist: track.artist, albumTitle: track.album }, { showSeekBackward: true, showSeekForward: true });
@@ -130,10 +131,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [current, status.isLoaded, status.duration, dispatch]);
 
-  // Удалённый локальный трек убираем и из очереди.
+  // Удалённый файл убираем и из очереди (потоки из интернета могут играть и без сохранения в медиатеке).
   useEffect(() => {
     const q = queueRef.current;
-    const gone = q.tracks.filter((t) => !library.tracks.has(t.id));
+    const gone = q.tracks.filter((t) => t.local && !library.tracks.has(t.id));
     if (!gone.length) return;
     const wasCurrent = gone.some((t) => t.id === q.tracks[q.index]?.id);
     const nq = gone.reduce((acc, t) => dropTrack(acc, t.id), q);

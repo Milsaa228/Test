@@ -23,7 +23,7 @@ export type LibraryAction =
   | { type: 'addToPlaylist'; playlistId: string; trackId: string }
   | { type: 'removeFromPlaylist'; playlistId: string; index: number }
   | { type: 'played'; id: string }
-  | { type: 'addLocal'; tracks: Track[] }
+  | { type: 'addTracks'; tracks: Track[] }
   | { type: 'removeLocal'; id: string }
   | { type: 'duration'; id: string; seconds: number };
 
@@ -56,9 +56,12 @@ export function libraryReducer(s: LibraryState, a: LibraryAction): LibraryState 
       };
     case 'played':
       return { ...s, recent: [a.id, ...s.recent.filter((x) => x !== a.id)].slice(0, RECENT_LIMIT) };
-    case 'addLocal': {
+    case 'addTracks': {
+      // Повторное добавление обновляет трек (например, поток из интернета после скачивания становится файлом).
+      const incoming = new Map(a.tracks.map((t) => [t.id, t]));
+      const updated = s.localTracks.map((t) => incoming.get(t.id) ?? t);
       const known = new Set(s.localTracks.map((t) => t.id));
-      return { ...s, localTracks: [...s.localTracks, ...a.tracks.filter((t) => !known.has(t.id))] };
+      return { ...s, localTracks: [...updated, ...a.tracks.filter((t) => !known.has(t.id))] };
     }
     case 'removeLocal': {
       const drop = (ids: string[]) => ids.filter((x) => x !== a.id);
@@ -110,8 +113,8 @@ export function resolveCollection(id: string, s: LibraryState): Collection | nul
     return { id, kind: 'liked', title: 'Любимые треки', subtitle: tracksLabel(s.liked.length), colors: ['#5038ED', '#8FBCE6'], tracks: resolveIds(s.liked, index), editable: false };
   }
   if (id === 'local') {
-    const tracks = all.filter((t) => t.local);
-    return { id, kind: 'local', title: 'Файлы на устройстве', subtitle: tracksLabel(tracks.length), colors: ['#F2994A', '#4F2A00'], tracks, editable: false };
+    const tracks = s.localTracks.map((t) => index.get(t.id)!);
+    return { id, kind: 'local', title: 'Мои треки', subtitle: `С устройства и из интернета · ${tracksLabel(tracks.length)}`, colors: ['#F2994A', '#4F2A00'], tracks, editable: false };
   }
   const [prefix, ...restParts] = id.split(':');
   const rest = restParts.join(':');

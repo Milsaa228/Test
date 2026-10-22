@@ -15,6 +15,8 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="collection/[id]" />
+            <Stack.Screen name="net/[id]" />
+            <Stack.Screen name="credits" />
             <Stack.Screen name="player" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="queue" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           </Stack>

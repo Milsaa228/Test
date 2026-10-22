@@ -1,4 +1,4 @@
-# Разовая разведка: официальный API и виджет SoundCloud для soundwave.
+# Разовая разведка: Subsonic API на демо-сервере Navidrome для soundwave.
 name: soundwave api probe
 
 on:
@@ -12,46 +12,60 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: SoundCloud
+      - name: Navidrome demo
         shell: python
         run: |
-          import re, html, json, urllib.request, urllib.parse, urllib.error
-          UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36'
-          def get(url, headers=None):
-              req = urllib.request.Request(url, headers={'User-Agent': UA, **(headers or {})})
+          import hashlib, json, random, string, urllib.parse, urllib.request, urllib.error
+          BASE = 'https://demo.navidrome.org'
+          def auth():
+              s = ''.join(random.choice(string.ascii_lowercase) for _ in range(8))
+              return {'u': 'demo', 't': hashlib.md5(('demo' + s).encode()).hexdigest(), 's': s, 'v': '1.16.1', 'c': 'soundwave', 'f': 'json'}
+          def call(method, **params):
+              url = f'{BASE}/rest/{method}?' + urllib.parse.urlencode({**auth(), **params})
+              req = urllib.request.Request(url, headers={'Origin': 'http://localhost:8081'})
               try:
                   with urllib.request.urlopen(req, timeout=30) as r:
-                      return r.status, dict(r.headers), r.read().decode('utf-8', 'replace')
+                      body = r.read()
+                      return r.status, dict(r.headers), body
               except urllib.error.HTTPError as e:
-                  return e.code, dict(e.headers), e.read().decode('utf-8', 'replace')
-          def text(h):
-              h = re.sub(r'(?is)<(script|style|svg)[^>]*>.*?</\1>', ' ', h)
-              h = re.sub(r'(?s)<[^>]+>', '\n', h)
-              return re.sub(r'\n\s*\n+', '\n', re.sub(r'[ \t]+', ' ', html.unescape(h))).strip()
-          def grep(t, kws, width=350):
-              for kw in kws:
-                  hits = [m.start() for m in re.finditer(kw, t, re.I)][:3]
-                  for s in hits:
-                      print(f'  [{kw}] …{t[max(0,s-150):s+width]}…'.replace('\n', ' '))
-          pages = {
-            'guide': 'https://developers.soundcloud.com/docs/api/guide',
-            'terms': 'https://developers.soundcloud.com/docs/api/terms-of-use',
-            'widget': 'https://developers.soundcloud.com/docs/api/html5-widget',
-            'docs': 'https://developers.soundcloud.com/docs',
-            'blog': 'https://developers.soundcloud.com/blog',
-          }
-          for name, url in pages.items():
-              st, h, b = get(url)
-              t = text(b)
-              print(f'\n===== {name} {st} {len(t)} chars')
-              print(t[:600].replace('\n', ' | '))
-              grep(t, ['register', 'client_id', 'client credentials', 'streams', 'hls', 'progressive', 'aac', 'offline', 'cache', 'download', 'background', 'attribut', 'rate limit', 'monetiz', 'advertis', 'unofficial', 'api-v2', 'scrap', 'form', 'approv', 'widget'])
-          # Без ключей
-          st, h, b = get('https://api.soundcloud.com/tracks?q=metallica&limit=1')
-          print('\nAPI no creds', st, b[:300])
-          st, h, b = get('https://soundcloud.com/oembed?format=json&url=' + urllib.parse.quote('https://soundcloud.com/metallica'))
-          print('OEMBED', st, b[:500])
-          st, h, b = get('https://w.soundcloud.com/player/?url=' + urllib.parse.quote('https://soundcloud.com/metallica'))
-          print('WIDGET page', st, len(b))
-          st, h, b = get('https://soundcloud.com/you/apps')
-          print('APPS page', st, text(b)[:400].replace('\n',' | '))
+                  return e.code, dict(e.headers), e.read()
+          def j(method, **p):
+              st, h, b = call(method, **p)
+              d = json.loads(b)['subsonic-response']
+              return st, h, d
+          st, h, d = j('ping')
+          print('PING', st, 'CORS', h.get('Access-Control-Allow-Origin'), json.dumps(d))
+          st, h, d = j('getOpenSubsonicExtensions')
+          print('EXT', json.dumps(d)[:600])
+          st, h, d = j('getGenres')
+          g = d.get('genres', {}).get('genre', [])
+          print('GENRES', len(g), [(x.get('value'), x.get('songCount')) for x in g[:30]])
+          st, h, d = j('getArtists')
+          idx = d.get('artists', {}).get('index', [])
+          arts = [a for i in idx for a in i.get('artist', [])]
+          print('ARTISTS', len(arts), json.dumps(arts[:3])[:900])
+          a = max(arts, key=lambda x: x.get('albumCount', 0))
+          st, h, d = j('getArtistInfo2', id=a['id'], count=5)
+          print('ARTISTINFO2', a['name'], json.dumps(d)[:900])
+          st, h, d = j('getArtist', id=a['id'])
+          albums = d.get('artist', {}).get('album', [])
+          print('ARTIST albums', len(albums), json.dumps(albums[:1])[:600])
+          st, h, d = j('getAlbum', id=albums[0]['id'])
+          songs = d.get('album', {}).get('song', [])
+          print('ALBUM songs', len(songs), json.dumps(songs[:1])[:1200])
+          sid = songs[0]['id']
+          for m, p in [('search3', {'query': a['name'][:4], 'artistCount': 3, 'albumCount': 3, 'songCount': 3}), ('getRandomSongs', {'size': 3}),
+                       ('getSongsByGenre', {'genre': g[0]['value'] if g else 'Rock', 'count': 3}), ('getSimilarSongs', {'id': sid, 'count': 5}),
+                       ('getSimilarSongs2', {'id': a['id'], 'count': 5}), ('getTopSongs', {'artist': a['name'], 'count': 5}),
+                       ('getAlbumList2', {'type': 'random', 'size': 3}), ('getLyricsBySongId', {'id': sid}), ('getLyrics', {'artist': songs[0].get('artist',''), 'title': songs[0].get('title','')}),
+                       ('getStarred2', {}), ('getPlaylists', {})]:
+              st, h, d = j(m, **p)
+              print('CALL', m, st, json.dumps(d, ensure_ascii=False)[:500])
+          st, h, b = call('stream', id=sid)
+          print('STREAM', st, h.get('Content-Type'), h.get('Content-Length'), len(b))
+          st, h, b = call('getCoverArt', id=albums[0].get('coverArt', albums[0]['id']), size=300)
+          print('COVER', st, h.get('Content-Type'), len(b))
+          st, h, b = call('getCoverArt', id='ar-' + a['id'], size=300)
+          print('ARTIST COVER', st, h.get('Content-Type'), len(b))
+          st, h, b = call('download', id=sid)
+          print('DOWNLOAD', st, h.get('Content-Type'), len(b))

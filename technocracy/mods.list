@@ -1,0 +1,96 @@
+# Список модов сборки Technocracy (Minecraft 1.20.1, Forge 47.x).
+# Формат строки: <источник> <slug> [# комментарий]
+#   источник: curseforge | modrinth
+# Зависимости (библиотеки) packwiz подтягивает сам.
+
+# ─── Ядро и интеграция ─────────────────────────────────────────────
+curseforge jei                          # рецепты
+curseforge jade                         # подсказки при наведении
+curseforge kubejs                       # скрипты сборки (кастомные рецепты)
+curseforge kubejs-create                # рецепты Create из KubeJS
+curseforge almost-unified               # унификация руд/слитков разных модов
+curseforge patchouli                    # книги-руководства
+
+# ─── Эпоха пара: Create ────────────────────────────────────────────
+curseforge create
+curseforge create-steam-n-rails         # поезда, семафоры, широкая колея
+curseforge createaddition               # Crafts & Additions: электричество FE <-> SU
+curseforge create-new-age               # генераторы, реакторы для Create
+curseforge create-enchantment-industry  # автоматическое зачарование
+curseforge create-big-cannons           # артиллерия
+curseforge create-deco                  # индустриальный декор
+curseforge create-jetpack               # реактивный ранец на воздухе
+curseforge create-connected             # мелкие полезные блоки
+
+# ─── Электричество и тяжёлая промышленность ────────────────────────
+curseforge immersive-engineering
+curseforge immersive-petroleum          # нефть, дизель, крекинг
+curseforge thermal-foundation
+curseforge thermal-expansion
+curseforge thermal-dynamics
+curseforge thermal-innovation
+curseforge thermal-integration
+curseforge thermal-cultivation
+curseforge industrial-foregoing         # фермы, мобы, лазерный бур
+curseforge pneumaticcraft-repressurized # пневматика, дроны, программирование
+curseforge ender-io                     # кондуиты, SAG-мельница, сплавы
+
+# ─── Атомный век: Mekanism ─────────────────────────────────────────
+curseforge mekanism
+curseforge mekanism-generators          # термоядерный и делящийся реакторы
+curseforge mekanism-additions
+curseforge mekanism-tools
+curseforge extreme-reactors             # многоблочные реакторы и турбины
+
+# ─── Энергия ───────────────────────────────────────────────────────
+curseforge powah-rearchitected          # реакторы, термо-генераторы, энергетические шары
+curseforge flux-networks                # беспроводная энергия
+
+# ─── Хранилища и логистика ─────────────────────────────────────────
+curseforge applied-energistics-2
+curseforge ae2wtlib                     # беспроводные терминалы
+curseforge applied-mekanistics          # газы Mekanism в ME-сети
+curseforge integrated-dynamics          # логические сети
+curseforge integrated-terminals
+curseforge integrated-tunnels
+curseforge integrated-crafting
+curseforge pipez                        # простые трубы
+curseforge modular-routers
+curseforge laserio                      # лазерная логистика
+curseforge functional-storage           # ящики
+curseforge sophisticated-storage
+curseforge sophisticated-backpacks
+
+# ─── Компьютеры ────────────────────────────────────────────────────
+curseforge cc-tweaked                   # программируемые компьютеры на Lua
+curseforge advanced-peripherals         # связка CC с AE2, Mekanism и др.
+
+# ─── Ресурсы и автоматизация ресурсов ──────────────────────────────
+curseforge mystical-agriculture         # выращивание ресурсов
+curseforge mining-gadgets
+curseforge building-gadgets
+curseforge ftb-ultimine-forge           # вскапывание жилы целиком
+
+# ─── Космос и эндгейм ──────────────────────────────────────────────
+curseforge ad-astra                     # ракеты, Луна, Марс, Венера, Меркурий, Гленио
+curseforge draconic-evolution           # эндгейм: Драконий реактор
+
+# ─── Мир, карта, мультиплеер ───────────────────────────────────────
+curseforge xaeros-minimap
+curseforge xaeros-world-map
+curseforge waystones
+curseforge ftb-chunks-forge             # приват и прогрузка чанков
+curseforge ftb-teams-forge
+
+# ─── Удобство ──────────────────────────────────────────────────────
+curseforge mouse-tweaks
+curseforge controlling
+curseforge appleskin
+
+# ─── Производительность (такая сборка без них тормозит) ────────────
+curseforge embeddium
+curseforge ferritecore
+curseforge modernfix
+curseforge entityculling
+curseforge immediatelyfast
+curseforge spark                        # профилировщик для поиска лагов

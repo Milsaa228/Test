@@ -1,0 +1,13 @@
+hash-format = "sha256"
+
+[[files]]
+file = "kubejs/client_scripts/tooltips.js"
+hash = "3b955c34aab2b01dfb9199d52f41cb3c61aff81b41e8b4004a6ec55a4730e6c5"
+
+[[files]]
+file = "kubejs/server_scripts/create_assembly.js"
+hash = "5f39d9702d7b531fc83c198b255d88e5010207eb133c1b039d760ddf811d6bc6"
+
+[[files]]
+file = "kubejs/server_scripts/progression.js"
+hash = "d5e3799bd9e9c3d9bd699b988282b6b8db788446e5d81c2647d6efadecf086c3"

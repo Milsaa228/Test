@@ -1,0 +1,13 @@
+name = "Technocracy"
+author = "milsaa228"
+version = "1.0.0"
+pack-format = "packwiz:1.1.0"
+
+[index]
+file = "index.toml"
+hash-format = "sha256"
+hash = "ddffd5c61067994401851764ef230fa642a7915acbcf82e8886194343dfc5e33"
+
+[versions]
+forge = "47.3.0"
+minecraft = "1.20.1"

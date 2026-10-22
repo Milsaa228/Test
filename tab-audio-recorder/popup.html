@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <section class="now">
+    <div class="label">Сейчас играет</div>
+    <div id="track" class="track">—</div>
+  </section>
+
+  <section class="controls">
+    <button id="record" class="primary">● Записать</button>
+    <span id="timer" class="timer" hidden>00:00</span>
+  </section>
+  <button id="save-track">☆ Зафиксировать трек</button>
+  <p id="error" class="error" hidden></p>
+
+  <section>
+    <div class="list-head">
+      <span class="label">Сохранённые треки</span>
+      <span>
+        <button id="export" class="link">CSV</button>
+        <button id="clear" class="link">Очистить</button>
+      </span>
+    </div>
+    <ul id="saved"></ul>
+  </section>
+
+  <p class="hint">Записывайте только то, на что у вас есть права: свой контент, свободные лицензии, личные эфиры.</p>
+  <script src="popup.js"></script>
+</body>
+</html>

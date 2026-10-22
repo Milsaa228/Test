@@ -134,6 +134,9 @@ class RecordService : Service() {
         val stop = PendingIntent.getService(
             this, 1, Intent(this, RecordService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
+        val saveTrack = PendingIntent.getBroadcast(
+            this, 2, Intent(this, SaveTrackReceiver::class.java), PendingIntent.FLAG_IMMUTABLE,
+        )
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.notif_recording))
@@ -141,12 +144,17 @@ class RecordService : Service() {
             .setOngoing(true)
             .setUsesChronometer(true)
             .addAction(Notification.Action.Builder(null, getString(R.string.stop), stop).build())
+            .addAction(Notification.Action.Builder(null, getString(R.string.save_track), saveTrack).build())
             .build()
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
-    private fun notifyStateChanged() = onStateChanged?.invoke()
+    private fun notifyStateChanged() {
+        // Кнопка «Записать» в плашке нужна только когда запись не идёт.
+        TrayNotification.update(this)
+        onStateChanged?.invoke()
+    }
 
     companion object {
         const val ACTION_START = "com.milsaa.musicrecorder.START"

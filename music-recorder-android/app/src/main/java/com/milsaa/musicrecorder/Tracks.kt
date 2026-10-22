@@ -87,6 +87,12 @@ class TrackStore(context: Context) {
         prefs.edit().putString(KEY, array.toString()).apply()
     }
 
+    /** Тот же трек уже сохранён последним — чтобы повторные нажатия в шторке не плодили дубли. */
+    fun isLast(track: Track): Boolean {
+        val last = all().lastOrNull() ?: return false
+        return last.title == track.title && last.artist == track.artist && last.app == track.app
+    }
+
     fun clear() {
         prefs.edit().remove(KEY).apply()
     }

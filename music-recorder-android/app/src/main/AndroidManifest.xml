@@ -27,7 +27,22 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-        <!-- Нужен только для того, чтобы система дала доступ к активным медиасессиям (что сейчас играет). -->
+        <receiver
+            android:name=".SaveTrackReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".SaveTrackTile"
+            android:exported="true"
+            android:icon="@drawable/ic_star"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Нужен для того, чтобы система дала доступ к активным медиасессиям (что сейчас играет) и для обновления плашки в шторке. -->
         <service
             android:name=".MediaListener"
             android:exported="true"

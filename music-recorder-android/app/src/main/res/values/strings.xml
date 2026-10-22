@@ -26,4 +26,10 @@
     <string name="record_empty">Звук не записан. Возможно, приложение-плеер запрещает захват звука.</string>
     <string name="record_failed">Ошибка записи: %1$s</string>
     <string name="default_label">Запись</string>
+    <string name="already_saved">Уже в списке</string>
+    <string name="tray_channel">Сейчас играет</string>
+    <string name="tray_hint">Нажмите «Зафиксировать», чтобы сохранить трек</string>
+    <string name="tray_saved">✓ Трек в списке</string>
+    <string name="tray_toggle">Плашка «Сейчас играет» в шторке уведомлений</string>
+    <string name="tile_label">Зафиксировать трек</string>
 </resources>

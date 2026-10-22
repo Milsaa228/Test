@@ -16,6 +16,7 @@ import android.text.format.DateFormat
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Date
@@ -28,6 +29,7 @@ class MainActivity : Activity() {
     private lateinit var record: Button
     private lateinit var timer: TextView
     private lateinit var savedList: LinearLayout
+    private lateinit var trayToggle: Switch
 
     private val handler = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
@@ -46,6 +48,7 @@ class MainActivity : Activity() {
         record = findViewById(R.id.record)
         timer = findViewById(R.id.timer)
         savedList = findViewById(R.id.savedList)
+        trayToggle = findViewById(R.id.trayToggle)
 
         grantAccess.setOnClickListener { showAccessDialog() }
         record.setOnClickListener {
@@ -59,15 +62,46 @@ class MainActivity : Activity() {
                 .setPositiveButton(R.string.clear) { _, _ ->
                     store.clear()
                     renderSaved()
+                    TrayNotification.update(this)
                 }
                 .setNegativeButton(R.string.cancel, null)
                 .show()
         }
+        trayToggle.isChecked = TrayNotification.isEnabled(this)
+        trayToggle.setOnCheckedChangeListener { _, checked ->
+            TrayNotification.setEnabled(this, checked)
+            if (checked) requestNotificationPermission()
+        }
         renderSaved()
+        // Если открыли кнопкой «Записать» из шторки, разрешения спросит запись; иначе — только уведомления.
+        if (intent?.action == ACTION_RECORD) handleIntent(intent) else requestNotificationPermission()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Кнопка «Записать» в плашке открывает приложение: разрешение на захват звука можно спросить только из Activity. */
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action != ACTION_RECORD) return
+        setIntent(Intent(this, MainActivity::class.java))
+        if (!RecordService.isRecording) requestPermissionsAndRecord()
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        // Список мог пополниться из шторки, пока приложение было в фоне.
+        renderSaved()
+        TrayNotification.update(this)
         RecordService.onStateChanged = { render() }
         handler.post(ticker)
     }
@@ -129,18 +163,13 @@ class MainActivity : Activity() {
     }
 
     private fun saveTrack() {
-        if (!NowPlaying.hasAccess(this)) {
+        val result = TrayNotification.saveCurrent(this)
+        if (result == TrayNotification.SaveResult.NO_ACCESS) {
             showAccessDialog()
             return
         }
-        val track = NowPlaying.current(this)
-        if (track == null) {
-            Toast.makeText(this, R.string.nothing_playing, Toast.LENGTH_SHORT).show()
-            return
-        }
-        store.add(track)
         renderSaved()
-        Toast.makeText(this, R.string.track_saved, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, TrayNotification.messageFor(result), Toast.LENGTH_SHORT).show()
     }
 
     private fun exportCsv() {
@@ -172,6 +201,10 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_NOTIFICATIONS) {
+            TrayNotification.update(this)
+            return
+        }
         if (requestCode != REQ_PERMISSIONS) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             launchProjection()
@@ -204,8 +237,10 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    private companion object {
-        const val REQ_PERMISSIONS = 1
-        const val REQ_PROJECTION = 2
+    companion object {
+        const val ACTION_RECORD = "com.milsaa.musicrecorder.RECORD"
+        private const val REQ_PERMISSIONS = 1
+        private const val REQ_PROJECTION = 2
+        private const val REQ_NOTIFICATIONS = 3
     }
 }

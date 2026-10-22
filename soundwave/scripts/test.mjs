@@ -207,11 +207,19 @@ test('archive.org metadata: one mp3 per original, ordered, with urls, tags and d
       { name: 'cover.jpg', format: 'JPEG' },
     ],
   });
-  assert.deepEqual(tracks.map((t) => [t.title, t.artist, t.duration]), [['01 First', 'Guest', 62], ['Second', 'Band', 185]]);
+  assert.deepEqual(tracks.map((t) => [t.title, t.artist, t.duration]), [['First', 'Guest', 62], ['Second', 'Band', 185]]);
   assert.equal(tracks[0].uri, 'https://archive.org/download/my%20item/disc/01%20First.mp3');
   assert.deepEqual(tracks[1].tags, ['blues', 'live']);
   assert.ok(tracks.every((t) => t.online && t.id.startsWith('net-') && t.sourceUrl === 'https://archive.org/details/my%20item'));
   assert.equal(A.netTrackId(tracks[0].uri), tracks[0].id, 'stable id');
+});
+
+test('archive titles and creators are tidied', () => {
+  const cases = [['01 Oasis is Myth', 1, 'Oasis is Myth'], ['7 Picasso Moon', '7', 'Picasso Moon'], ['201. TMK - Zombi', undefined, 'TMK - Zombi'], ['02_ I - Allegro', undefined, 'I - Allegro'],
+    ['000 Grande Valse', undefined, 'Grande Valse'], ['1,000,000', 3, '1,000,000'], ['99 Luftballons', 3, '99 Luftballons'], ['42', 1, '42']];
+  for (const [title, track, want] of cases) assert.equal(A.cleanTitle(title, track), want, title);
+  assert.equal(A.shortCreator('burgmüller, friedrich ; schubert, franz ; chopin'), 'burgmüller, friedrich и др.');
+  assert.equal(A.shortCreator('Grateful Dead'), 'Grateful Dead');
 });
 
 test('archive helpers: length, extension, license label, fetch errors', async () => {

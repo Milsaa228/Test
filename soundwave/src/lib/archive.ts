@@ -100,6 +100,25 @@ export function hashId(s: string): string {
 
 export const netTrackId = (url: string) => `net-${hashId(url)}`;
 
+/**
+ * Убирает номер дорожки из названия: «01 Oasis», «7. Moon», «02_ I - Allegro».
+ * Число без разделителя и без ведущего нуля убираем, только если оно совпадает с номером дорожки —
+ * чтобы не испортить «99 Luftballons» или «1,000,000».
+ */
+export function cleanTitle(title: string, track?: unknown): string {
+  const m = title.match(/^\s*(\d{1,3})\s*([-._)]*)\s+(?=\S)/);
+  if (!m) return title.trim();
+  const isTrackNo = m[2] !== '' || m[1].startsWith('0') || (track != null && parseInt(String(track), 10) === parseInt(m[1], 10));
+  return isTrackNo ? title.slice(m[0].length).trim() : title.trim();
+}
+
+/** Длинный список авторов («a ; b ; c») сокращаем до первого. */
+export function shortCreator(creator: string): string {
+  const parts = creator.split(/\s*;\s*/).filter(Boolean);
+  const head = parts[0] ?? creator;
+  return parts.length > 1 ? `${head} и др.` : head.length > 60 ? `${head.slice(0, 57)}…` : head;
+}
+
 /** Треки элемента архива: по одному MP3 на исходный файл, в порядке номеров треков. */
 export function parseArchiveMetadata(id: string, json: any): Track[] {
   const meta = json?.metadata ?? {};
@@ -129,8 +148,8 @@ export function parseArchiveMetadata(id: string, json: any): Track[] {
     const fileTitle = first(f.title) ?? String(f.name).split('/').pop()!.replace(/\.[^.]+$/, '').replace(/_/g, ' ');
     return {
       id: netTrackId(url),
-      title: fileTitle,
-      artist: first(f.creator) ?? first(f.artist) ?? albumArtist,
+      title: cleanTitle(fileTitle, f.track),
+      artist: shortCreator(first(f.creator) ?? first(f.artist) ?? albumArtist),
       album,
       uri: url,
       duration: parseLength(f.length),

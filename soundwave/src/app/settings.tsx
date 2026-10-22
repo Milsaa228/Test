@@ -25,14 +25,21 @@ function confirm(title: string, message: string, ok: string, onOk: () => void) {
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(bytes > 100 * 1024 * 1024 ? 0 : 1)} МБ`;
 
 function Row({ icon, title, sub, right, onPress, danger }: { icon: IconName; title: string; sub?: string; right?: ReactNode; onPress?: () => void; danger?: boolean }) {
-  return (
-    <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => [styles.row, pressed && onPress && { backgroundColor: colors.elevated }]}>
+  const body = (
+    <>
       <Icon name={icon} size={22} color={danger ? colors.danger : colors.muted} />
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowTitle, danger && { color: colors.danger }]}>{title}</Text>
         {sub ? <Text style={styles.rowSub}>{sub}</Text> : null}
       </View>
       {right}
+    </>
+  );
+  // Строка с переключателем — обычный View: неактивный Pressable вокруг блокировал бы сам Switch.
+  if (!onPress) return <View style={styles.row}>{body}</View>;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.elevated }]}>
+      {body}
     </Pressable>
   );
 }

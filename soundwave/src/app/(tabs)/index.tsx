@@ -11,6 +11,7 @@ import { colors } from '../../components/theme';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { useReco } from '../../context/RecoContext';
+import { tracksLabel } from '../../lib/library';
 import { openCollection } from '../../lib/nav';
 import { MIX_INFO, type MixKind } from '../../lib/recommend';
 
@@ -30,9 +31,9 @@ const MIX_COLORS: Record<MixKind, [string, string]> = {
 
 function WaveCard() {
   const reco = useReco();
-  const { playing } = usePlayer();
+  const { playing, current } = usePlayer();
   const { offline } = useLibrary();
-  const active = reco.waveActive && playing;
+  const active = reco.waveActive && playing && !!current;
   return (
     <Pressable onPress={reco.startWave} style={styles.wave} accessibilityRole="button" accessibilityLabel={active ? 'Пауза: Моя волна' : 'Слушать Мою волну'}>
       <Svg style={StyleSheet.absoluteFill} preserveAspectRatio="none" viewBox="0 0 1 1">
@@ -97,7 +98,7 @@ export default function Home() {
       <Shelf title="Ваши миксы">
         {(['day', 'week', 'month'] as MixKind[]).map((kind) => {
           const m = reco.mixes[kind];
-          const subtitle = m.loading ? 'Собираем…' : m.mix ? `${m.mix.tracks.length} треков · ${MIX_INFO[kind].subtitle.toLowerCase()}` : (m.error ?? MIX_INFO[kind].subtitle);
+          const subtitle = m.loading ? 'Собираем…' : m.mix ? `${tracksLabel(m.mix.tracks.length)} · ${MIX_INFO[kind].short}` : (m.error ?? MIX_INFO[kind].subtitle);
           return (
             <MediaCard key={kind} title={MIX_INFO[kind].title} subtitle={subtitle} colors={MIX_COLORS[kind]} icon="wave" onPress={() => openCollection(`mix:${kind}`)} />
           );

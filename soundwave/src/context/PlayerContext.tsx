@@ -160,6 +160,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     tracksRef.current = library.tracks;
   }, [library.offline, library.tracks]);
 
+  // Перешли в офлайн: потоковые треки убираем из очереди, а если играл такой трек — останавливаем.
+  useEffect(() => {
+    if (!library.offline) return;
+    const q = queueRef.current;
+    if (q.tracks.every((t) => t.local)) return;
+    const cur = q.tracks[q.index];
+    const tracks = q.tracks.filter((t) => t.local);
+    const original = q.original.filter((t) => t.local);
+    if (cur && !cur.local) {
+      player.pause();
+      loadedId.current = null;
+      player.replace(null);
+      setQueue({ ...q, tracks, original, index: tracks.length ? 0 : -1 });
+      if (tracks.length) load(player, tracks[0], false);
+      else setSource(null);
+    } else {
+      setQueue({ ...q, tracks, original, index: cur ? tracks.indexOf(cur) : -1 });
+    }
+  }, [library.offline, player, setQueue, load]);
+
   const playList = useCallback(
     (tracks: Track[], index: number, src: string | null, opts?: { shuffle?: boolean }) => {
       const fresh = tracks.map((t) => tracksRef.current.get(t.id) ?? t);

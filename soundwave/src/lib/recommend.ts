@@ -6,10 +6,10 @@ import type { LibraryState, Track } from './types';
 
 export type MixKind = 'day' | 'week' | 'month';
 
-export const MIX_INFO: Record<MixKind, { title: string; subtitle: string; size: number }> = {
-  day: { title: 'Микс дня', subtitle: 'Обновляется каждый день', size: 20 },
-  week: { title: 'Микс недели', subtitle: 'Обновляется по понедельникам', size: 30 },
-  month: { title: 'Микс месяца', subtitle: 'Обновляется 1-го числа', size: 40 },
+export const MIX_INFO: Record<MixKind, { title: string; subtitle: string; short: string; size: number }> = {
+  day: { title: 'Микс дня', subtitle: 'Обновляется каждый день', short: 'каждый день', size: 20 },
+  week: { title: 'Микс недели', subtitle: 'Обновляется по понедельникам', short: 'по понедельникам', size: 30 },
+  month: { title: 'Микс месяца', subtitle: 'Обновляется 1-го числа', short: '1-го числа', size: 40 },
 };
 
 /**

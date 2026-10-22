@@ -1,0 +1,52 @@
+name: Music Recorder APK
+
+on:
+  push:
+    paths:
+      - "music-recorder-android/**"
+      - ".github/workflows/music-recorder-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: music-recorder-android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk MusicRecorder.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MusicRecorder-apk
+          path: music-recorder-android/MusicRecorder.apk
+
+      # Публикуем APK в релиз, чтобы его было удобно скачать прямо с телефона.
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || startsWith(github.ref_name, 'ccr-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=music-recorder-latest
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" MusicRecorder.apk \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Music Recorder (сборка ${GITHUB_SHA::7})" \
+            --notes "APK собран автоматически из ветки ${GITHUB_REF_NAME}. Установка — см. music-recorder-android/README.md."

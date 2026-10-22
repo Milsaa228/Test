@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Music Recorder</string>
+    <string name="now_playing">Сейчас играет</string>
+    <string name="nothing_playing">Ничего не играет</string>
+    <string name="no_access">Нет доступа к информации о треке</string>
+    <string name="grant_access">Дать доступ к уведомлениям</string>
+    <string name="record">● Записать</string>
+    <string name="stop">■ Остановить</string>
+    <string name="save_track">☆ Зафиксировать трек</string>
+    <string name="saved_tracks">Сохранённые треки</string>
+    <string name="export_csv">Поделиться CSV</string>
+    <string name="clear">Очистить</string>
+    <string name="clear_confirm">Удалить все сохранённые треки?</string>
+    <string name="cancel">Отмена</string>
+    <string name="empty_list">Пока пусто</string>
+    <string name="hint">Записи сохраняются в Music/MusicRecorder (формат M4A). Записывайте только то, на что у вас есть права. Некоторые приложения (например, стриминговые сервисы) запрещают захват своего звука — тогда запись будет пустой.</string>
+    <string name="access_title">Доступ к уведомлениям</string>
+    <string name="access_message">Чтобы узнать, какой трек играет, приложению нужен доступ к уведомлениям. Само содержимое уведомлений не читается и не сохраняется — используются только данные медиаплеера (название, исполнитель, альбом).</string>
+    <string name="open_settings">Открыть настройки</string>
+    <string name="track_saved">Трек сохранён</string>
+    <string name="mic_denied">Без разрешения на запись звука захват невозможен</string>
+    <string name="channel_name">Запись звука</string>
+    <string name="notif_recording">Идёт запись</string>
+    <string name="saved_to">Сохранено: %1$s</string>
+    <string name="record_empty">Звук не записан. Возможно, приложение-плеер запрещает захват звука.</string>
+    <string name="record_failed">Ошибка записи: %1$s</string>
+    <string name="default_label">Запись</string>
+</resources>

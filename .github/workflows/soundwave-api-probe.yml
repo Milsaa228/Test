@@ -1,4 +1,4 @@
-# Разовая разведка внешних API для soundwave: Deezer (каталог, отрывки, фото) и LRCLIB (тексты песен).
+# Разовая разведка: что zaycev.net разрешает сторонним приложениям (соглашение, правообладатели, API).
 name: soundwave api probe
 
 on:
@@ -12,51 +12,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe
+      - name: Fetch zaycev.net pages
         shell: python
         run: |
-          import json, urllib.parse, urllib.request
-          def get(url, origin=None):
-              h = {'User-Agent': 'soundwave-probe'}
-              if origin: h['Origin'] = origin
-              req = urllib.request.Request(url, headers=h)
+          import re, html, urllib.request
+          UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36'
+          def get(url):
+              req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept-Language': 'ru'})
               with urllib.request.urlopen(req, timeout=30) as r:
-                  return r.status, dict(r.headers), r.read()
-          def j(url):
-              st, h, b = get(url, 'http://localhost:8081')
-              return st, h, json.loads(b)
-          D = 'https://api.deezer.com'
-          st, h, d = j(f'{D}/search?q=metallica&limit=3')
-          print('SEARCH status', st, 'CORS', h.get('Access-Control-Allow-Origin'), 'keys', list(d.keys()))
-          t = d['data'][0]
-          print('TRACK sample', json.dumps({k: t[k] for k in t if k not in ('artist','album')}, ensure_ascii=False)[:700])
-          print('TRACK artist', json.dumps(t['artist'], ensure_ascii=False)[:500])
-          print('TRACK album', json.dumps(t['album'], ensure_ascii=False)[:400])
-          # Отрывок: доступен ли, тип, есть ли срок действия
-          st2, h2, b2 = get(t['preview'])
-          print('PREVIEW', st2, h2.get('Content-Type'), len(b2), 'url', t['preview'][:160])
-          for q in ['Металлика', 'Эминем', 'metallika', 'eminem', 'Кино', 'kino', 'Имаджин драгонс', 'Imagine Dragons', 'Билли Айлиш', 'Земфира', 'zemfira', 'ьуефддшсф', 'Скриптонит', 'skriptonit', 'Баста', 'basta', 'The Weeknd', 'уикенд', 'Рианна', 'rianna', 'Кино группа крови']:
-              st, h, d = j(f'{D}/search/artist?q={urllib.parse.quote(q)}&limit=3')
-              print('ARTIST?', q, '->', [(a['name'], a.get('nb_fan')) for a in d.get('data', [])])
-          st, h, d = j(f'{D}/search?q={urllib.parse.quote("группа крови")}&limit=3')
-          print('TRACK? группа крови ->', [(x['title'], x['artist']['name']) for x in d.get('data', [])])
-          aid = 119  # Metallica
-          for path in [f'artist/{aid}', f'artist/{aid}/top?limit=3', f'artist/{aid}/related?limit=3', f'artist/{aid}/radio?limit=3', f'artist/{aid}/albums?limit=2', 'genre', 'chart/0/artists?limit=3', 'chart/0/tracks?limit=2', 'genre/152/artists?limit=3', 'radio/genres', 'editorial/0/charts?limit=1']:
+                  return r.status, r.geturl(), r.read().decode('utf-8', 'replace')
+          def text(h):
+              h = re.sub(r'(?is)<(script|style|svg)[^>]*>.*?</\1>', ' ', h)
+              h = re.sub(r'(?s)<[^>]+>', '\n', h)
+              t = html.unescape(h)
+              return re.sub(r'\n\s*\n+', '\n', re.sub(r'[ \t]+', ' ', t)).strip()
+          try:
+              st, url, home = get('https://zaycev.net/')
+          except Exception as e:
+              print('HOME ERROR', e); raise SystemExit(0)
+          print('HOME', st, url, len(home))
+          links = sorted(set(re.findall(r'href="(/[^"#?]*(?:agree|rule|term|polic|legal|right|pravo|about|api|partner|dev|widget|licen|pages)[^"#?]*)"', home, re.I)))
+          print('FOOTER LINKS', links)
+          print('HOME TEXT', text(home)[:1500])
+          cand = links + ['/pages/agreement', '/pages/rightholders', '/pages/about', '/agreement', '/rightholders', '/legal']
+          seen = set()
+          for path in cand:
+              if path in seen: continue
+              seen.add(path)
               try:
-                  st, h, d = j(f'{D}/{path}')
-                  s = json.dumps(d, ensure_ascii=False)
-                  print('PATH', path, st, s[:600])
+                  st, url, h = get('https://zaycev.net' + path)
+                  t = text(h)
+                  print(f'\n===== {path} -> {st} {url} ({len(t)} chars)')
+                  # Ключевые места соглашения
+                  for kw in ['API', 'сторонн', 'программ', 'автоматизир', 'скачив', 'копирова', 'некоммерч', 'личн', 'лиценз', 'правообладател', 'договор', 'воспроизвед', 'реклам', 'парсинг', 'робот']:
+                      for m in re.finditer(kw, t, re.I):
+                          s = max(0, m.start() - 200); print(f'[{kw}] …{t[s:m.end()+300]}…'.replace('\n', ' '))
+                          break
               except Exception as e:
-                  print('PATH', path, 'ERROR', e)
-          st, h, d = j(f'{D}/genre')
-          print('GENRES', [(g['id'], g['name']) for g in d['data']])
-          # LRCLIB
-          for (a, tt) in [('Metallica', 'Nothing Else Matters'), ('Кино', 'Группа крови')]:
-              try:
-                  st, h, b = get('https://lrclib.net/api/get?' + urllib.parse.urlencode({'artist_name': a, 'track_name': tt}), 'http://localhost:8081')
-                  dd = json.loads(b)
-                  print('LRCLIB', a, st, 'CORS', h.get('Access-Control-Allow-Origin'), {k: (str(v)[:120] if v else v) for k, v in dd.items()})
-              except Exception as e:
-                  print('LRCLIB', a, 'ERROR', e)
-          st, h, b = get('https://lrclib.net/api/search?' + urllib.parse.urlencode({'q': 'nothing else matters metallica'}))
-          print('LRCLIB search', st, len(json.loads(b)))
+                  print(f'\n===== {path} ERROR {e}')

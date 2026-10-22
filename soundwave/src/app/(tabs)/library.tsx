@@ -55,8 +55,8 @@ export default function Library() {
     <View style={[styles.root, { paddingTop: insets.top + 12 }]}>
       <View style={styles.header}>
         <Text style={styles.heading}>Медиатека</Text>
-        <Pressable onPress={() => router.push('/credits')} hitSlop={8} accessibilityLabel="Об авторах музыки">
-          <Icon name="info" size={24} color={colors.text} />
+        <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityLabel="Настройки">
+          <Icon name="settings" size={24} color={colors.text} />
         </Pressable>
         <Pressable onPress={onImport} hitSlop={8} accessibilityLabel="Импортировать аудиофайлы">
           <Icon name="folder" size={24} color={colors.text} />
@@ -105,7 +105,7 @@ export default function Library() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Найти музыку в интернете</Text>
-            <Text style={styles.sub}>Свободные альбомы из Internet Archive</Text>
+            <Text style={styles.sub}>Свободная музыка из Internet Archive</Text>
           </View>
         </Pressable>
         <Pressable onPress={() => setUrlPrompt(true)} style={styles.row}>

@@ -4,11 +4,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '../components/Icon';
 import { colors } from '../components/theme';
-import { CATALOG, CC_BY_4 } from '../lib/catalog';
 
 const open = (url: string) => Linking.openURL(url).catch(() => {});
 
-/** Указание авторства по условиям CC BY 4.0. */
 export default function Credits() {
   const insets = useSafeAreaInsets();
   return (
@@ -17,25 +15,27 @@ export default function Credits() {
         <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} hitSlop={10} accessibilityLabel="Назад">
           <Icon name="back" size={22} color={colors.text} />
         </Pressable>
-        <Text style={styles.heading}>Авторы музыки</Text>
+        <Text style={styles.heading}>Источники музыки</Text>
       </View>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 12 }}>
         <Text style={styles.p}>
-          Встроенные треки играют без интернета. Их автор — Kevin MacLeod (incompetech.com). Музыка распространяется по лицензии Creative Commons
-          «Attribution 4.0» (CC BY 4.0).
+          Вся музыка загружается из Internet Archive (archive.org) — открытой библиотеки, где музыканты и лейблы публикуют записи под свободными
+          лицензиями.
         </Text>
-        <Pressable onPress={() => open(CC_BY_4)}>
-          <Text style={styles.link}>creativecommons.org/licenses/by/4.0</Text>
+        <Pressable onPress={() => open('https://archive.org/details/audio')}>
+          <Text style={styles.link}>archive.org/details/audio</Text>
         </Pressable>
-        {CATALOG.map((t) => (
-          <Pressable key={t.id} style={styles.item} onPress={() => open(t.sourceUrl!)}>
-            <Text style={styles.title}>«{t.title}»</Text>
-            <Text style={styles.sub}>Kevin MacLeod (incompetech.com) · Licensed under Creative Commons: By Attribution 4.0 License</Text>
-          </Pressable>
-        ))}
-        <Text style={[styles.p, { marginTop: 20 }]}>
-          Музыка из интернета ищется в Internet Archive (archive.org). Лицензия у каждой записи своя — она показана на экране альбома и в плеере.
-          Скачивайте только то, что вам разрешено.
+        <Text style={styles.p}>
+          Приложение показывает только записи с лицензией Creative Commons или в общественном достоянии. Лицензия и ссылка на страницу записи указаны
+          на экране альбома и в плеере. Условия у лицензий разные: например, CC BY требует указывать автора, а NC запрещает коммерческое
+          использование.
+        </Text>
+        <Pressable onPress={() => open('https://creativecommons.org/licenses/?lang=ru')}>
+          <Text style={styles.link}>Что означают лицензии Creative Commons</Text>
+        </Pressable>
+        <Text style={styles.p}>
+          Миксы, «Моя волна» и полки «Для вас» подбираются на телефоне по вашим предпочтениям, лайкам и истории прослушиваний. Данные никуда не
+          отправляются.
         </Text>
       </ScrollView>
     </View>
@@ -47,8 +47,5 @@ const styles = StyleSheet.create({
   top: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 16, marginBottom: 4 },
   heading: { color: colors.text, fontSize: 20, fontWeight: '800' },
   p: { color: colors.muted, fontSize: 14, lineHeight: 20 },
-  link: { color: colors.accent, fontSize: 14, marginTop: 6, marginBottom: 12 },
-  item: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
-  sub: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  link: { color: colors.accent, fontSize: 14 },
 });

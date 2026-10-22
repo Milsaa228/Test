@@ -13,16 +13,18 @@ type Props = {
   number?: number;
   /** Прогресс скачивания 0…1. */
   progress?: number;
+  /** Недоступен сейчас (офлайн, не скачан) — показываем приглушённым. */
+  disabled?: boolean;
   onPress: () => void;
   onMore?: () => void;
 };
 
-export function TrackRow({ track, active, liked, number, progress, onPress, onMore }: Props) {
+export function TrackRow({ track, active, liked, number, progress, disabled, onPress, onMore }: Props) {
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onMore}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.elevated }]}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.elevated }, disabled && { opacity: 0.4 }]}
       accessibilityRole="button"
       accessibilityLabel={`${track.title}, ${track.artist}`}
     >

@@ -1,5 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { Directory, File, Paths } from 'expo-file-system';
+import { useNetworkState } from 'expo-network';
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 
@@ -28,6 +29,17 @@ type LibraryCtx = {
   download: (track: Track) => Promise<Track>;
   /** Трек по прямой ссылке на аудиофайл. */
   trackFromUrl: (url: string) => Track;
+  /** Без интернета: включён офлайн-режим или нет сети. Тогда играют только файлы на устройстве. */
+  offline: boolean;
+  /** Сети нет (а не просто включён офлайн-режим). */
+  networkDown: boolean;
+  setSettings: (s: Partial<LibraryState['settings']>) => void;
+  /** Скачивает все понравившиеся треки, которых ещё нет на устройстве. Возвращает число скачанных. */
+  downloadLiked: () => Promise<{ ok: number; total: number }>;
+  /** Удаляет скачанные из интернета файлы: треки остаются в медиатеке и снова играют онлайн. */
+  removeDownloads: () => number;
+  /** Сколько места занимают файлы на устройстве (байты). */
+  storageBytes: () => number;
 };
 
 const Ctx = createContext<LibraryCtx | null>(null);
@@ -59,6 +71,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [downloads, setDownloads] = useState<Record<string, number>>({});
   const inFlight = useRef(new Map<string, Promise<Track>>());
+  const net = useNetworkState();
+  // isInternetReachable бывает undefined, пока система проверяет сеть, — считаем, что сеть есть.
+  const networkDown = net.isConnected === false || net.isInternetReachable === false;
+  const offline = state.settings.offline || networkDown;
 
   useEffect(() => {
     loadLibrary().then((s) => {
@@ -82,13 +98,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     [tracks],
   );
 
-  const toggleLike = useCallback(
-    (track: Track) => {
-      remember(track);
-      dispatch({ type: 'toggleLike', id: track.id });
-    },
-    [remember],
-  );
 
   const createPlaylist = useCallback((name: string, trackIds?: string[]) => {
     const id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -134,7 +143,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const running = inFlight.current.get(track.id);
     if (running) return running;
     const job = (async () => {
-      const url = track.uri;
+      const url = track.remoteUri ?? track.uri;
       const dest = new File(musicDir(), `${Date.now().toString(36)}-${safeName(`${track.artist} - ${track.title}`)}.${audioExtension(url)}`);
       setDownloads((d) => ({ ...d, [track.id]: 0 }));
       try {
@@ -145,7 +154,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         });
         const file = await task.downloadAsync();
         if (!file) throw new Error('Загрузка прервана');
-        const saved: Track = { ...track, uri: file.uri, local: true, online: false, sourceUrl: track.sourceUrl ?? url };
+        const saved: Track = { ...track, uri: file.uri, remoteUri: url, local: true, online: true, sourceUrl: track.sourceUrl ?? url };
         dispatch({ type: 'addTracks', tracks: [saved] });
         return saved;
       } catch (e) {
@@ -163,6 +172,61 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     inFlight.current.set(track.id, job);
     return job;
   }, []);
+
+  const likedSet = liked;
+  const toggleLike = useCallback(
+    (track: Track) => {
+      remember(track);
+      const willLike = !likedSet.has(track.id);
+      dispatch({ type: 'toggleLike', id: track.id });
+      const known = tracks.get(track.id) ?? track;
+      if (willLike && state.settings.autoDownloadLiked && isNative && !offline && !known.local) download(known).catch(() => {});
+    },
+    [remember, likedSet, tracks, state.settings.autoDownloadLiked, offline, download],
+  );
+
+  const setSettings = useCallback((settings: Partial<LibraryState['settings']>) => dispatch({ type: 'setSettings', settings }), []);
+
+  const downloadLiked = useCallback(async () => {
+    const todo = state.liked.map((id) => tracks.get(id)).filter((t): t is Track => !!t && !t.local && !!(t.remoteUri ?? t.uri).startsWith('http'));
+    let ok = 0;
+    for (const t of todo) {
+      try {
+        await download(t);
+        ok++;
+      } catch {
+        // остальные продолжаем
+      }
+    }
+    return { ok, total: todo.length };
+  }, [state.liked, tracks, download]);
+
+  const removeDownloads = useCallback(() => {
+    const downloaded = state.localTracks.filter((t) => t.local && t.remoteUri);
+    for (const t of downloaded) {
+      try {
+        if (isNative && t.uri.startsWith('file:')) new File(t.uri).delete();
+      } catch {
+        // файл уже удалён
+      }
+    }
+    dispatch({ type: 'addTracks', tracks: downloaded.map((t) => ({ ...t, uri: t.remoteUri!, local: false, online: true })) });
+    return downloaded.length;
+  }, [state.localTracks]);
+
+  const storageBytes = useCallback(() => {
+    if (!isNative) return 0;
+    let sum = 0;
+    for (const t of state.localTracks) {
+      if (!t.local || !t.uri.startsWith('file:')) continue;
+      try {
+        sum += new File(t.uri).size ?? 0;
+      } catch {
+        // файл недоступен
+      }
+    }
+    return sum;
+  }, [state.localTracks]);
 
   const trackFromUrl = useCallback((url: string): Track => {
     const last = decodeURIComponent(url.split(/[?#]/)[0].split('/').pop() || 'Трек');
@@ -216,8 +280,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       downloads,
       download,
       trackFromUrl,
+      offline,
+      networkDown,
+      setSettings,
+      downloadLiked,
+      removeDownloads,
+      storageBytes,
     }),
-    [state, ready, tracks, isLiked, toggleLike, remember, createPlaylist, importFiles, removeLocal, downloads, download, trackFromUrl],
+    [state, ready, tracks, isLiked, toggleLike, remember, createPlaylist, importFiles, removeLocal, downloads, download, trackFromUrl, offline, networkDown, setSettings, downloadLiked, removeDownloads, storageBytes],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

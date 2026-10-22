@@ -4,27 +4,51 @@ import type { Track } from './types';
 // Internet Archive (archive.org): открытый каталог свободной музыки, без ключа API.
 const BASE = 'https://archive.org';
 
-export type NetItem = { id: string; title: string; creator: string; license?: string };
+export type NetItem = { id: string; title: string; creator: string; license?: string; tags?: string[] };
 
 type Fetch = (url: string) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
 
 const first = (v: unknown): string | undefined => (Array.isArray(v) ? v.map(String).join(', ') : v == null ? undefined : String(v));
 
-/** Поисковый запрос: только аудио с MP3, без аудиокниг и радиопередач. */
+/**
+ * Общий фильтр: аудио в MP3 со свободной лицензией (Creative Commons или общественное достояние),
+ * без аудиокниг, подкастов, радиопередач и прочих речевых записей.
+ */
+export const MUSIC_FILTER =
+  'mediatype:(audio) AND format:(MP3 OR "VBR MP3") AND licenseurl:(*creativecommons.org* OR *publicdomain*)' +
+  ' AND -collection:(librivoxaudio OR podcasts OR radioprograms OR oldtimeradio)' +
+  ' AND -subject:(podcast OR audiobook OR lecture OR sermon OR speech OR interview OR quran OR talk)';
+
+const cleanText = (text: string) => text.replace(/[()":\\]/g, ' ').trim().replace(/\s+/g, ' ');
+
+/** Поисковый запрос по тексту пользователя. */
 export function buildArchiveQuery(text: string): string {
-  const q = text.replace(/[()":\\]/g, ' ').trim().replace(/\s+/g, ' ');
-  return `(${q}) AND mediatype:(audio) AND format:(MP3 OR "VBR MP3") AND -collection:(librivoxaudio OR podcasts OR radioprograms)`;
+  return `(${cleanText(text)}) AND ${MUSIC_FILTER}`;
 }
 
-export function archiveSearchUrl(text: string, rows = 30): string {
+/** Запрос по исполнителю (точная фраза в поле creator). */
+export const artistQuery = (name: string) => `creator:("${cleanText(name)}") AND ${MUSIC_FILTER}`;
+/** Запрос по готовому выражению жанра из genres.ts. */
+export const genreQuery = (expr: string) => `(${expr}) AND ${MUSIC_FILTER}`;
+
+export function archiveQueryUrl(query: string, opts: { rows?: number; page?: number } = {}): string {
   const params = [
-    `q=${encodeURIComponent(buildArchiveQuery(text))}`,
-    ...['identifier', 'title', 'creator', 'licenseurl'].map((f) => `fl[]=${f}`),
+    `q=${encodeURIComponent(query)}`,
+    ...['identifier', 'title', 'creator', 'licenseurl', 'subject'].map((f) => `fl[]=${f}`),
     'sort[]=downloads+desc',
-    `rows=${rows}`,
+    `rows=${opts.rows ?? 30}`,
+    `page=${opts.page ?? 1}`,
     'output=json',
   ];
   return `${BASE}/advancedsearch.php?${params.join('&')}`;
+}
+
+export const archiveSearchUrl = (text: string, rows = 30) => archiveQueryUrl(buildArchiveQuery(text), { rows });
+
+/** Темы (subject) архива → короткий список тегов в нижнем регистре. */
+export function parseTags(v: unknown): string[] {
+  const raw = Array.isArray(v) ? v.map(String) : v == null ? [] : String(v).split(/[;,]/);
+  return [...new Set(raw.map((x) => x.trim().toLowerCase()).filter((x) => x && x.length < 40))].slice(0, 12);
 }
 
 export function parseArchiveSearch(json: any): NetItem[] {
@@ -36,14 +60,19 @@ export function parseArchiveSearch(json: any): NetItem[] {
       title: first(d.title) ?? String(d.identifier),
       creator: first(d.creator) ?? 'Неизвестный исполнитель',
       license: first(d.licenseurl),
+      tags: parseTags(d.subject),
     }));
 }
 
-export async function searchArchive(text: string, fetchFn: Fetch = fetch as unknown as Fetch): Promise<NetItem[]> {
-  if (!text.trim()) return [];
-  const res = await fetchFn(archiveSearchUrl(text));
+export async function queryArchive(query: string, opts: { rows?: number; page?: number } = {}, fetchFn: Fetch = fetch as unknown as Fetch): Promise<NetItem[]> {
+  const res = await fetchFn(archiveQueryUrl(query, opts));
   if (!res.ok) throw new Error(`archive.org ответил ${res.status}`);
   return parseArchiveSearch(await res.json());
+}
+
+export async function searchArchive(text: string, fetchFn: Fetch = fetch as unknown as Fetch): Promise<NetItem[]> {
+  if (!cleanText(text)) return [];
+  return queryArchive(buildArchiveQuery(text), { rows: 30 }, fetchFn);
 }
 
 /** «123.45» или «2:03» / «1:02:03» → секунды. */
@@ -78,6 +107,7 @@ export function parseArchiveMetadata(id: string, json: any): Track[] {
   const album = first(meta.title) ?? id;
   const albumArtist = first(meta.creator) ?? 'Неизвестный исполнитель';
   const license = first(meta.licenseurl);
+  const tags = parseTags(meta.subject);
 
   const mp3 = files.filter((f) => f?.name && (MP3_FORMATS.has(f.format) || /\.mp3$/i.test(f.name)));
   // Один и тот же трек часто лежит и оригиналом, и производной копией — оставляем одну, предпочитая VBR MP3.
@@ -107,6 +137,7 @@ export function parseArchiveMetadata(id: string, json: any): Track[] {
       colors: colorsFor(id),
       online: true,
       license,
+      tags,
       sourceUrl: `${BASE}/details/${encodeURIComponent(id)}`,
     };
   });

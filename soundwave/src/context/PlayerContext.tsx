@@ -13,8 +13,8 @@ import {
   toggleShuffle as queueToggleShuffle,
   type QueueState,
 } from '../lib/queue';
-import { audioSource } from '../lib/musicAssets';
 import { loadPlayerPrefs, savePlayerPrefs } from '../lib/storage';
+import { isPlayable } from '../lib/library';
 import type { Track } from '../lib/types';
 import { useLibrary } from './LibraryContext';
 
@@ -25,7 +25,10 @@ type PlayerCtx = {
   source: string | null;
   playing: boolean;
   status: AudioStatus;
-  playList: (tracks: Track[], index: number, source: string | null, opts?: { shuffle?: boolean }) => void;
+  /** Запускает очередь. Без интернета пропускает нескачанные треки; false — играть нечего. */
+  playList: (tracks: Track[], index: number, source: string | null, opts?: { shuffle?: boolean }) => boolean;
+  /** Добавляет треки в конец очереди (для «Моей волны»). */
+  append: (tracks: Track[]) => void;
   toggle: () => void;
   next: () => void;
   prev: () => void;
@@ -68,7 +71,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (loadedId.current === track.id && p.isLoaded) {
         p.seekTo(0);
       } else {
-        p.replace(audioSource(track));
+        p.replace({ uri: track.uri });
         loadedId.current = track.id;
         try {
           p.setActiveForLockScreen(true, { title: track.title, artist: track.artist, albumTitle: track.album }, { showSeekBackward: true, showSeekForward: true });
@@ -78,7 +81,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       if (autoplay) {
         p.play();
-        dispatch({ type: 'played', id: track.id });
+        dispatch({ type: 'played', track, now: Date.now() });
       }
     },
     [dispatch],
@@ -100,12 +103,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     restoreStarted.current = true;
     loadPlayerPrefs().then((prefs) => {
       const base = { ...EMPTY_QUEUE, shuffle: prefs.shuffle, repeat: prefs.repeat };
-      const last = prefs.lastTrackId ? library.tracks.get(prefs.lastTrackId) : undefined;
+      const last = prefs.lastTrackId ? (library.tracks.get(prefs.lastTrackId) ?? library.state.recentTracks.find((t) => t.id === prefs.lastTrackId)) : undefined;
       if (last) goTo(startQueue(base, [last], 0), 0, false);
       else setQueue(base);
       setPrefsReady(true);
     });
-  }, [library.ready, library.tracks, goTo, setQueue]);
+  }, [library.ready, library.tracks, library.state.recentTracks, goTo, setQueue]);
 
   useEffect(() => {
     if (prefsReady) savePlayerPrefs({ shuffle: queue.shuffle, repeat: queue.repeat, lastTrackId: current?.id });
@@ -149,13 +152,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else setQueue(nq);
   }, [library.tracks, goTo, player, setQueue]);
 
+  const offlineRef = useRef(library.offline);
+  // Сохранённая версия трека может уже указывать на скачанный файл — берём её.
+  const tracksRef = useRef(library.tracks);
+  useEffect(() => {
+    offlineRef.current = library.offline;
+    tracksRef.current = library.tracks;
+  }, [library.offline, library.tracks]);
+
   const playList = useCallback(
     (tracks: Track[], index: number, src: string | null, opts?: { shuffle?: boolean }) => {
-      const q = startQueue(queueRef.current, tracks, index, opts);
+      const fresh = tracks.map((t) => tracksRef.current.get(t.id) ?? t);
+      const chosen = index >= 0 ? fresh[index] : undefined;
+      const playable = fresh.filter((t) => isPlayable(t, offlineRef.current));
+      if (!playable.length) return false;
+      const start = chosen ? playable.indexOf(chosen) : -1;
+      if (chosen && start < 0) return false;
+      const q = startQueue(queueRef.current, playable, start, opts);
       setSource(src);
       goTo(q, q.index);
+      return true;
     },
     [goTo],
+  );
+
+  const append = useCallback(
+    (tracks: Track[]) => {
+      const q = queueRef.current;
+      const have = new Set(q.tracks.map((t) => t.id));
+      const add = tracks.filter((t) => !have.has(t.id) && isPlayable(t, offlineRef.current));
+      if (add.length) setQueue({ ...q, tracks: [...q.tracks, ...add], original: [...q.original, ...add] });
+    },
+    [setQueue],
   );
 
   const toggle = useCallback(() => {
@@ -171,9 +199,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const next = useCallback(() => {
     const q = queueRef.current;
+    const cur = q.tracks[q.index];
+    // Переключение в первые 30 секунд считаем пропуском — такие треки реже попадут в подборки.
+    if (cur && player.currentTime < 30 && (player.duration || 0) > 45) dispatch({ type: 'skipped', track: cur, now: Date.now() });
     const i = nextIndex(q, false);
     if (i != null) goTo(q, i, true);
-  }, [goTo]);
+  }, [goTo, player, dispatch]);
 
   const prev = useCallback(() => {
     const q = queueRef.current;
@@ -192,6 +223,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playing: status.playing,
       status,
       playList,
+      append,
       toggle,
       next,
       prev,
@@ -201,12 +233,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat: () => setQueue({ ...queueRef.current, repeat: cycleRepeat(queueRef.current.repeat) }),
       playNext: (t) => {
         const q = queueRef.current;
-        if (q.index < 0) playList([t], 0, null);
+        if (q.index < 0) void playList([t], 0, null);
         else setQueue(queuePlayNext(q, t));
       },
       removeFromQueue: (i) => setQueue(removeAt(queueRef.current, i)),
     }),
-    [queue, current, source, status, playList, toggle, next, prev, player, goTo, setQueue],
+    [queue, current, source, status, playList, append, toggle, next, prev, player, goTo, setQueue],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

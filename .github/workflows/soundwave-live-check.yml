@@ -1,0 +1,27 @@
+# Проверка рекомендаций soundwave на живом Internet Archive: миксы, волна, жанры и исполнители стартового экрана.
+name: soundwave live check
+
+on:
+  push:
+    paths:
+      - 'soundwave/src/lib/**'
+      - 'soundwave/scripts/live-check.mjs'
+      - '.github/workflows/soundwave-live-check.yml'
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: soundwave
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: soundwave/package-lock.json
+      - run: npm ci
+      - run: node scripts/live-check.mjs

@@ -11,6 +11,7 @@ import { albumKey, tracksLabel } from '../lib/library';
 import type { Track } from '../lib/types';
 import { useLibrary } from './LibraryContext';
 import { usePlayer } from './PlayerContext';
+import { useReco } from './RecoContext';
 
 type MenuTarget = {
   track: Track;
@@ -46,6 +47,7 @@ const TrackMenuCtx = createContext<Ctx | null>(null);
 export function TrackMenuProvider({ children }: { children: ReactNode }) {
   const library = useLibrary();
   const player = usePlayer();
+  const reco = useReco();
   const [target, setTarget] = useState<MenuTarget | null>(null);
   const [mode, setMode] = useState<'menu' | 'playlists' | 'new'>('menu');
   const [toast, setToast] = useState<string | null>(null);
@@ -143,6 +145,15 @@ export function TrackMenuProvider({ children }: { children: ReactNode }) {
               },
             ]
           : []),
+        {
+          icon: 'thumbDown',
+          label: 'Не нравится',
+          onPress: () => {
+            reco.dislike(track);
+            showToast('Больше не будем предлагать этот трек');
+            close();
+          },
+        },
         ...(saved ? [{ icon: 'user' as const, label: 'К исполнителю', onPress: () => go(`artist:${track.artist}`) }] : []),
         ...(saved && !track.local && !track.online
           ? [{ icon: 'disc' as const, label: 'К альбому', onPress: () => go(albumKey(track.artist, track.album)) }]

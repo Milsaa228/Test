@@ -1,10 +1,16 @@
+import { Redirect } from 'expo-router';
 import { BottomTabBar, Tabs } from 'expo-router/js-tabs';
 
 import { Icon } from '../../components/Icon';
 import { MiniPlayer } from '../../components/MiniPlayer';
 import { colors } from '../../components/theme';
+import { useLibrary } from '../../context/LibraryContext';
 
 export default function TabsLayout() {
+  const { ready, state } = useLibrary();
+  if (!ready) return null;
+  // Первый запуск: сначала выбор жанров и исполнителей.
+  if (!state.prefs.onboarded) return <Redirect href="/onboarding" />;
   return (
     <Tabs
       tabBar={(props) => (

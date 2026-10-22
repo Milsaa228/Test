@@ -11,7 +11,7 @@ import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { useTrackMenu } from '../../context/TrackMenuContext';
 import { licenseLabel, searchArchive, type NetItem } from '../../lib/archive';
-import { GENRES } from '../../lib/catalog';
+import { GENRES } from '../../lib/genres';
 import { albumKey, colorsFor, search } from '../../lib/library';
 import { openCollection } from '../../lib/nav';
 
@@ -23,7 +23,7 @@ export default function Search() {
   const params = useLocalSearchParams<{ mode?: string }>();
   const [mode, setMode] = useState<Mode>(params.mode === 'net' ? 'net' : 'local');
   const [query, setQuery] = useState('');
-  const { tracks, isLiked } = useLibrary();
+  const { tracks, isLiked, offline } = useLibrary();
   const { playList, current } = usePlayer();
   const { openTrackMenu, addFromUrl } = useTrackMenu();
   const results = useMemo(() => search(query, [...tracks.values()]), [query, tracks]);
@@ -122,6 +122,12 @@ export default function Search() {
               </Text>
             </View>
           </Pressable>
+        ) : mode === 'net' && offline ? (
+          <View style={styles.nothing}>
+            <Icon name="cloudOff" size={40} color={colors.muted} />
+            <Text style={styles.nothingTitle}>Поиск в интернете недоступен</Text>
+            <Text style={styles.nothingText}>Нет подключения или включён офлайн-режим. Скачанные треки ищите во вкладке «В медиатеке».</Text>
+          </View>
         ) : mode === 'net' ? (
           netQuery.length < 2 ? (
             <View>
@@ -168,10 +174,17 @@ export default function Search() {
           )
         ) : !query.trim() ? (
           <>
-            <Text style={styles.sub}>Жанры</Text>
+            <Text style={styles.sub}>Жанры в интернете</Text>
             <View style={styles.genres}>
               {GENRES.map((g) => (
-                <Pressable key={g.name} style={[styles.genre, { backgroundColor: g.color }]} onPress={() => openCollection(`genre:${g.name}`)}>
+                <Pressable
+                  key={g.id}
+                  style={[styles.genre, { backgroundColor: g.color }]}
+                  onPress={() => {
+                    setMode('net');
+                    setQuery(g.keywords[0]);
+                  }}
+                >
                   <Text style={styles.genreText}>{g.name}</Text>
                 </Pressable>
               ))}

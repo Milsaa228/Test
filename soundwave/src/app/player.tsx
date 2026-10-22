@@ -10,9 +10,11 @@ import { ProgressBar } from '../components/ProgressBar';
 import { colors } from '../components/theme';
 import { useLibrary } from '../context/LibraryContext';
 import { usePlayer } from '../context/PlayerContext';
+import { useReco, WAVE_SOURCE } from '../context/RecoContext';
 import { useTrackMenu } from '../context/TrackMenuContext';
 import { licenseLabel } from '../lib/archive';
 import { resolveCollection } from '../lib/library';
+import { MIX_INFO, type MixKind } from '../lib/recommend';
 import { openCollection } from '../lib/nav';
 
 export default function PlayerScreen() {
@@ -20,7 +22,8 @@ export default function PlayerScreen() {
   const { width, height } = useWindowDimensions();
   const p = usePlayer();
   const library = useLibrary();
-  const { openTrackMenu } = useTrackMenu();
+  const { openTrackMenu, showToast } = useTrackMenu();
+  const reco = useReco();
   const gradientId = `bg${useId().replace(/:/g, '')}`;
   const t = p.current;
 
@@ -42,7 +45,11 @@ export default function PlayerScreen() {
     ? undefined
     : p.source === 'recent'
       ? 'Недавно прослушанные'
-      : p.source.startsWith('net:')
+      : p.source === WAVE_SOURCE
+        ? 'Моя волна'
+        : p.source.startsWith('mix:')
+          ? MIX_INFO[p.source.slice(4) as MixKind]?.title
+          : p.source.startsWith('net:')
         ? t.album
         : resolveCollection(p.source, library.state)?.title;
   const coverSize = Math.min(width - 48, height * 0.42, 420);
@@ -68,7 +75,7 @@ export default function PlayerScreen() {
         </Pressable>
         <Pressable
           style={styles.topCenter}
-          disabled={!p.source || p.source === 'recent'}
+          disabled={!p.source || p.source === WAVE_SOURCE}
           onPress={() => {
             if (!p.source) return;
             close();
@@ -111,6 +118,18 @@ export default function PlayerScreen() {
               {t.artist}
             </Text>
           </Pressable>
+          {p.source === WAVE_SOURCE && (
+            <Pressable
+              onPress={() => {
+                reco.dislike(t);
+                showToast('Больше не будем предлагать этот трек');
+              }}
+              hitSlop={10}
+              accessibilityLabel="Не нравится"
+            >
+              <Icon name="thumbDown" size={26} color={colors.text} />
+            </Pressable>
+          )}
           <Pressable onPress={() => library.toggleLike(t)} hitSlop={10} accessibilityLabel={liked ? 'Убрать из любимых' : 'В любимые'}>
             <Icon name={liked ? 'heart' : 'heartOutline'} size={28} color={liked ? colors.accent : colors.text} />
           </Pressable>

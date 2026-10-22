@@ -39,3 +39,13 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## Product rules (Soundwave)
+
+These come from the product owner. Keep them when changing recommendations.
+
+1. **Music comes only from the internet** (Internet Archive, CC/public-domain licensed items only — see `MUSIC_FILTER` in `src/lib/archive.ts`). The app ships no bundled tracks.
+2. **Mixes for the day/week/month must use liked tracks as little as possible.** Liked tracks are *seeds* for finding similar music, not mix content. They are never added to the candidate pool for mixes; if some show up from the archive anyway, `assembleMix` takes them last and caps them at `MIX_MAX_LIKED_SHARE` (10%). The test `RULE: mixes prefer fresh tracks…` in `scripts/test.mjs` guards this — do not weaken it.
+3. "Моя волна" plays music similar to what the user likes; it may include a few liked tracks (`WAVE_MAX_LIKED_SHARE`), never the same artist twice in a row.
+4. First launch shows onboarding (genres and/or artists); preferences are editable in Settings.
+5. Offline mode (setting or no network) plays only downloaded files; nothing may require the network there.

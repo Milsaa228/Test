@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useId, useState } from 'react';
-import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
@@ -13,11 +13,15 @@ import { TrackRow } from '../../components/TrackRow';
 import { colors } from '../../components/theme';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
+import { useReco } from '../../context/RecoContext';
 import { useTrackMenu } from '../../context/TrackMenuContext';
-import { resolveCollection } from '../../lib/library';
+import { isPlayable, resolveCollection, tracksLabel } from '../../lib/library';
+import { MIX_INFO, type MixKind } from '../../lib/recommend';
+import type { Collection } from '../../lib/types';
 import { formatTotal } from '../../lib/queue';
 
-const ICONS = { liked: 'heart', local: 'download', artist: 'user', album: 'disc', playlist: 'note', genre: 'note' } as const;
+const ICONS = { liked: 'heart', local: 'download', artist: 'user', album: 'disc', playlist: 'note', mix: 'wave', recent: 'note' } as const;
+const MIX_COLORS: Record<MixKind, [string, string]> = { day: ['#F953C6', '#3A0CA3'], week: ['#11998E', '#06312D'], month: ['#F7971E', '#7B2FF7'] };
 
 function confirm(title: string, message: string, onOk: () => void) {
   if (Platform.OS === 'web') {
@@ -35,12 +39,27 @@ export default function CollectionScreen() {
   const insets = useSafeAreaInsets();
   const library = useLibrary();
   const player = usePlayer();
-  const { openTrackMenu } = useTrackMenu();
+  const { openTrackMenu, showToast } = useTrackMenu();
+  const reco = useReco();
   const [menu, setMenu] = useState(false);
   const [rename, setRename] = useState(false);
   const gradientId = `hero${useId().replace(/:/g, '')}`;
 
-  const col = id ? resolveCollection(id, library.state) : null;
+  const mixKind = id?.startsWith('mix:') ? (id.slice(4) as MixKind) : null;
+  const mixState = mixKind ? reco.mixes[mixKind] : null;
+  let col: Collection | null = null;
+  if (mixKind && mixState?.mix && MIX_INFO[mixKind]) {
+    col = {
+      id: id!,
+      kind: 'mix',
+      title: MIX_INFO[mixKind].title,
+      subtitle: `${MIX_INFO[mixKind].subtitle} · ${tracksLabel(mixState.mix.tracks.length)}`,
+      colors: MIX_COLORS[mixKind],
+      // Сохранённая версия трека может указывать на скачанный файл.
+      tracks: mixState.mix.tracks.map((t) => library.tracks.get(t.id) ?? t),
+      editable: false,
+    };
+  } else if (id && !mixKind) col = resolveCollection(id, library.state);
 
   const back = (
     <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={[styles.back, { top: insets.top + 6 }]} hitSlop={8} accessibilityLabel="Назад">
@@ -52,7 +71,22 @@ export default function CollectionScreen() {
     return (
       <View style={[styles.root, styles.center]}>
         {back}
-        <Text style={styles.emptyTitle}>{library.ready ? 'Не найдено' : 'Загрузка…'}</Text>
+        {mixState?.loading ? (
+          <>
+            <ActivityIndicator color={colors.accent} size="large" />
+            <Text style={styles.emptyText}>Подбираем треки по вашему вкусу…</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.emptyTitle}>{mixKind ? 'Микс пока не готов' : library.ready ? 'Не найдено' : 'Загрузка…'}</Text>
+            {mixState?.error ? <Text style={styles.emptyText}>{mixState.error}</Text> : null}
+            {mixKind && !library.offline ? (
+              <Pressable style={styles.findBtn} onPress={reco.refreshMixes}>
+                <Text style={styles.findText}>Попробовать снова</Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
       </View>
     );
   }
@@ -63,9 +97,15 @@ export default function CollectionScreen() {
   // Общую длительность показываем, только когда известны длительности всех треков.
   const total = col.tracks.every((t) => t.duration != null) ? col.tracks.reduce((s, t) => s + (t.duration ?? 0), 0) : 0;
 
+  const notPlayable = () => showToast('Трек не скачан — нужен интернет');
   const onPlay = () => {
     if (isSource && player.current) player.toggle();
-    else if (col.tracks.length) player.playList(col.tracks, -1, col.id);
+    else if (col.tracks.length && !player.playList(col.tracks, -1, col.id)) notPlayable();
+  };
+  const saveMix = () => {
+    for (const t of col.tracks) library.remember(t);
+    library.createPlaylist(`${col.title} · ${new Date().toLocaleDateString('ru-RU')}`, col.tracks.map((t) => t.id));
+    showToast('Микс сохранён в медиатеку как плейлист');
   };
 
   const header = (
@@ -96,6 +136,12 @@ export default function CollectionScreen() {
           {col.editable && (
             <Pressable onPress={() => setMenu(true)} hitSlop={8} accessibilityLabel="Действия с плейлистом">
               <Icon name="more" size={24} color={colors.muted} />
+            </Pressable>
+          )}
+          {col.kind === 'mix' && (
+            <Pressable onPress={saveMix} hitSlop={8} style={styles.savePill} accessibilityLabel="Сохранить микс как плейлист">
+              <Icon name="plus" size={18} color={colors.text} />
+              <Text style={styles.savePillText}>В медиатеку</Text>
             </Pressable>
           )}
           <View style={{ flex: 1 }} />
@@ -153,7 +199,11 @@ export default function CollectionScreen() {
             number={col.kind === 'album' ? index + 1 : undefined}
             active={player.current?.id === item.id}
             liked={col.kind !== 'liked' && library.isLiked(item.id)}
-            onPress={() => player.playList(col.tracks, index, col.id, { shuffle: false })}
+            disabled={!isPlayable(item, library.offline)}
+            progress={library.downloads[item.id]}
+            onPress={() => {
+              if (!player.playList(col.tracks, index, col.id, { shuffle: false })) notPlayable();
+            }}
             onMore={() => openTrackMenu({ track: item, playlistId, index })}
           />
         )}
@@ -220,6 +270,8 @@ const styles = StyleSheet.create({
   findBtn: { marginTop: 12, backgroundColor: colors.text, borderRadius: 24, paddingHorizontal: 24, paddingVertical: 12 },
   findText: { color: colors.bg, fontWeight: '700' },
   mini: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  savePill: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: colors.faint, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 7 },
+  savePillText: { color: colors.text, fontSize: 13, fontWeight: '600' },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 16, paddingVertical: 14 },
   menuText: { color: colors.text, fontSize: 16 },
 });

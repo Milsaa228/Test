@@ -1,0 +1,218 @@
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus, type AudioPlayer, type AudioStatus } from 'expo-audio';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+
+import {
+  cycleRepeat,
+  dropTrack,
+  EMPTY_QUEUE,
+  nextIndex,
+  playNext as queuePlayNext,
+  prevIndex,
+  removeAt,
+  startQueue,
+  toggleShuffle as queueToggleShuffle,
+  type QueueState,
+} from '../lib/queue';
+import { loadPlayerPrefs, savePlayerPrefs } from '../lib/storage';
+import type { Track } from '../lib/types';
+import { useLibrary } from './LibraryContext';
+
+type PlayerCtx = {
+  queue: QueueState;
+  current: Track | undefined;
+  /** Откуда запущена очередь (id коллекции), чтобы подсветить её кнопку «Играть». */
+  source: string | null;
+  playing: boolean;
+  status: AudioStatus;
+  playList: (tracks: Track[], index: number, source: string | null, opts?: { shuffle?: boolean }) => void;
+  toggle: () => void;
+  next: () => void;
+  prev: () => void;
+  seek: (seconds: number) => void;
+  jumpTo: (index: number) => void;
+  toggleShuffle: () => void;
+  cycleRepeat: () => void;
+  playNext: (track: Track) => void;
+  removeFromQueue: (index: number) => void;
+};
+
+const Ctx = createContext<PlayerCtx | null>(null);
+
+export function PlayerProvider({ children }: { children: ReactNode }) {
+  const library = useLibrary();
+  const player = useAudioPlayer(null, { updateInterval: 250 });
+  const status = useAudioPlayerStatus(player);
+  const [queue, setQueueState] = useState<QueueState>(EMPTY_QUEUE);
+  const [source, setSource] = useState<string | null>(null);
+  const [prefsReady, setPrefsReady] = useState(false);
+  const restoreStarted = useRef(false);
+
+  // Обработчики событий плеера читают актуальную очередь через ref, а не из замыкания.
+  const queueRef = useRef(queue);
+  const loadedId = useRef<string | null>(null);
+  const setQueue = useCallback((q: QueueState) => {
+    queueRef.current = q;
+    setQueueState(q);
+  }, []);
+
+  const { dispatch } = library;
+  const current = queue.tracks[queue.index];
+
+  useEffect(() => {
+    setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch(() => {});
+  }, []);
+
+  const load = useCallback(
+    (p: AudioPlayer, track: Track, autoplay: boolean) => {
+      if (loadedId.current === track.id && p.isLoaded) {
+        p.seekTo(0);
+      } else {
+        p.replace({ uri: track.uri });
+        loadedId.current = track.id;
+        try {
+          p.setActiveForLockScreen(true, { title: track.title, artist: track.artist, albumTitle: track.album }, { showSeekBackward: true, showSeekForward: true });
+        } catch {
+          // экран блокировки поддерживается не везде
+        }
+      }
+      if (autoplay) {
+        p.play();
+        dispatch({ type: 'played', id: track.id });
+      }
+    },
+    [dispatch],
+  );
+
+  const goTo = useCallback(
+    (q: QueueState, index: number, autoplay = true) => {
+      const track = q.tracks[index];
+      if (!track) return;
+      setQueue({ ...q, index });
+      load(player, track, autoplay);
+    },
+    [load, player, setQueue],
+  );
+
+  // Восстанавливаем режимы и последний трек (на паузе) после запуска.
+  useEffect(() => {
+    if (!library.ready || restoreStarted.current) return;
+    restoreStarted.current = true;
+    loadPlayerPrefs().then((prefs) => {
+      const base = { ...EMPTY_QUEUE, shuffle: prefs.shuffle, repeat: prefs.repeat };
+      const last = prefs.lastTrackId ? library.tracks.get(prefs.lastTrackId) : undefined;
+      if (last) goTo(startQueue(base, [last], 0), 0, false);
+      else setQueue(base);
+      setPrefsReady(true);
+    });
+  }, [library.ready, library.tracks, goTo, setQueue]);
+
+  useEffect(() => {
+    if (prefsReady) savePlayerPrefs({ shuffle: queue.shuffle, repeat: queue.repeat, lastTrackId: current?.id });
+  }, [prefsReady, queue.shuffle, queue.repeat, current?.id]);
+
+  // Трек доиграл — переходим к следующему по правилам повтора.
+  useEffect(() => {
+    if (!status.didJustFinish) return;
+    const q = queueRef.current;
+    const i = nextIndex(q, true);
+    if (i == null) {
+      player.pause();
+      player.seekTo(0);
+    } else {
+      goTo(q, i);
+    }
+  }, [status.didJustFinish, goTo, player]);
+
+  // Запоминаем длительность, чтобы показывать её в списках.
+  useEffect(() => {
+    if (current && status.isLoaded && status.duration > 0 && loadedId.current === current.id) {
+      dispatch({ type: 'duration', id: current.id, seconds: status.duration });
+    }
+  }, [current, status.isLoaded, status.duration, dispatch]);
+
+  // Удалённый локальный трек убираем и из очереди.
+  useEffect(() => {
+    const q = queueRef.current;
+    const gone = q.tracks.filter((t) => !library.tracks.has(t.id));
+    if (!gone.length) return;
+    const wasCurrent = gone.some((t) => t.id === q.tracks[q.index]?.id);
+    const nq = gone.reduce((acc, t) => dropTrack(acc, t.id), q);
+    if (wasCurrent) {
+      player.pause();
+      if (nq.index >= 0) goTo(nq, nq.index, false);
+      else {
+        loadedId.current = null;
+        player.replace(null);
+        setQueue(nq);
+      }
+    } else setQueue(nq);
+  }, [library.tracks, goTo, player, setQueue]);
+
+  const playList = useCallback(
+    (tracks: Track[], index: number, src: string | null, opts?: { shuffle?: boolean }) => {
+      const q = startQueue(queueRef.current, tracks, index, opts);
+      setSource(src);
+      goTo(q, q.index);
+    },
+    [goTo],
+  );
+
+  const toggle = useCallback(() => {
+    const q = queueRef.current;
+    if (!q.tracks[q.index]) return;
+    if (player.playing) player.pause();
+    else {
+      if (!player.isLoaded || loadedId.current !== q.tracks[q.index].id) load(player, q.tracks[q.index], false);
+      else if (player.duration > 0 && player.currentTime >= player.duration - 0.25) player.seekTo(0);
+      player.play();
+    }
+  }, [player, load]);
+
+  const next = useCallback(() => {
+    const q = queueRef.current;
+    const i = nextIndex(q, false);
+    if (i != null) goTo(q, i, true);
+  }, [goTo]);
+
+  const prev = useCallback(() => {
+    const q = queueRef.current;
+    const i = prevIndex(q, player.currentTime);
+    if (i === q.index) {
+      player.seekTo(0);
+      if (!player.playing) player.play();
+    } else if (i >= 0) goTo(q, i, true);
+  }, [goTo, player]);
+
+  const value = useMemo<PlayerCtx>(
+    () => ({
+      queue,
+      current,
+      source,
+      playing: status.playing,
+      status,
+      playList,
+      toggle,
+      next,
+      prev,
+      seek: (s) => void player.seekTo(s),
+      jumpTo: (i) => goTo(queueRef.current, i, true),
+      toggleShuffle: () => setQueue(queueToggleShuffle(queueRef.current)),
+      cycleRepeat: () => setQueue({ ...queueRef.current, repeat: cycleRepeat(queueRef.current.repeat) }),
+      playNext: (t) => {
+        const q = queueRef.current;
+        if (q.index < 0) playList([t], 0, null);
+        else setQueue(queuePlayNext(q, t));
+      },
+      removeFromQueue: (i) => setQueue(removeAt(queueRef.current, i)),
+    }),
+    [queue, current, source, status, playList, toggle, next, prev, player, goTo, setQueue],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+export function usePlayer() {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error('usePlayer outside PlayerProvider');
+  return ctx;
+}
